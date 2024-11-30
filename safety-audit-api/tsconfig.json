@@ -1,0 +1,46 @@
+{
+  "compilerOptions": {
+    "module": "commonjs",
+    "declaration": true,
+    "removeComments": true,
+    "emitDecoratorMetadata": true,
+    "experimentalDecorators": true,
+    "allowSyntheticDefaultImports": true,
+    "target": "ES2021",
+    "sourceMap": true,
+    "outDir": "./dist",
+    "baseUrl": "./",
+    "incremental": true,
+    "skipLibCheck": true,
+    "strictNullChecks": true,        // Changed to true for better type safety
+    "noImplicitAny": true,           // Changed to true for better type checking
+    "strictBindCallApply": true,     // Changed to true for method binding safety
+    "forceConsistentCasingInFileNames": true,  // Changed to true
+    "noFallthroughCasesInSwitch": true,        // Changed to true
+    "typeRoots": [
+      "./node_modules/@types",
+      "./src/types"
+    ],
+    "esModuleInterop": true,
+    "strict": true,                  // Added for complete strict checks
+    "moduleResolution": "node",      // Added for better module resolution
+    "resolveJsonModule": true,       // Added for JSON imports
+    "paths": {                       // Added for cleaner imports
+      "@/*": ["src/*"]
+    },
+    "lib": [                         // Added for better type definitions
+      "es2021",
+      "dom"
+    ],
+    "strictPropertyInitialization": false  // Add this line
+  },
+  "exclude": [                       // Added to exclude test files
+    "node_modules",
+    "dist",
+    "**/*.spec.ts",
+    "**/*.test.ts"
+  ],
+  "include": [                       // Added to specify included files
+    "src/**/*"
+  ]
+}
