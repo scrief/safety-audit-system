@@ -1,8 +1,8 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { Button } from '@/components/ui/Button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'; 
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'; 
 import { 
   Table, 
   TableHeader, 
@@ -10,9 +10,9 @@ import {
   TableBody, 
   TableRow, 
   TableCell 
-} from '@/components/ui/Table';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from '@/components/ui/Dialog';
-import { Badge } from '@/components/ui/Badge';
+} from '@/components/ui/table';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from '@/components/ui/dialog';
+import { Badge } from '@/components/ui/badge';
 import Link from 'next/link';
 import { Audit } from '@/types';
 import { endpoints, fetchData, deleteData } from '@/utils/api';
@@ -56,7 +56,7 @@ export default function AuditsPage() {
   }
 
   const handleEditAudit = (audit: Audit) => {
-    router.push(`/audits/${audit.id}/edit`);
+    router.push(`/audits/${audit.id}`);
   };
 
   const handleDeleteClick = (audit: Audit) => {
@@ -70,7 +70,7 @@ export default function AuditsPage() {
     try {
       const response = await deleteData(endpoints.audits.single(auditToDelete.id));
       if (response.success) {
-        await fetchAudits(); // Refresh the list
+        await fetchAudits();
         setDeleteDialogOpen(false);
         setAuditToDelete(null);
       } else {
@@ -107,7 +107,6 @@ export default function AuditsPage() {
         </Dialog>
       </div>
 
-      {/* Delete Confirmation Dialog */}
       <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
         <DialogContent>
           <DialogHeader>

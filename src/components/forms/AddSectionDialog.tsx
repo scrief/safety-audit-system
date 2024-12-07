@@ -1,8 +1,8 @@
 "use client";
 
 import React from 'react';
-import { Dialog } from '@/components/ui/Dialog';
-import { Button } from '@/components/ui/Button';
+import { Dialog } from '@/components/ui/dialog';
+import { Button } from '@/components/ui/button';
 import { Section } from '@/types';
 
 interface AddSectionDialogProps {

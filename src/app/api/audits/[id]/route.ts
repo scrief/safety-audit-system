@@ -46,6 +46,7 @@ export async function GET(
     }
 
     // Get the audit with all its related data
+    console.log(`[GET Audit] Searching for audit with ID: ${id} for user: ${user.id}`);
     const audit = await prisma.audit.findFirst({
       where: {
         id,
@@ -77,11 +78,14 @@ export async function GET(
     });
 
     if (!audit) {
+      console.log(`[GET Audit] No audit found with ID: ${id} for user: ${user.id}`);
       return NextResponse.json({ 
         success: false, 
         error: 'Audit not found or you don\'t have access to it' 
       }, { status: 404 });
     }
+
+    console.log(`[GET Audit] Successfully found audit: ${audit.id}`);
 
     return NextResponse.json({ 
       success: true, 

@@ -5,7 +5,7 @@ import { useSession } from 'next-auth/react';
 import { useRouter, useParams } from 'next/navigation';
 import { Template, Audit } from '@/types';
 import { AuditForm } from '@/components/forms/AuditForm';
-import { Spinner } from '@/components/ui/Spinner';
+import { Spinner } from '@/components/ui/spinner';
 
 export default function AuditPage() {
   const params = useParams();

@@ -1,12 +1,11 @@
-// src/components/forms/FormBuilder.tsx
 "use client";
 
 import React, { useState, useEffect } from 'react';
 import { DndContext, closestCenter, KeyboardSensor, PointerSensor, useSensor, useSensors } from '@dnd-kit/core';
 import { arrayMove, SortableContext, sortableKeyboardCoordinates, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { Section, Field, Template, FieldType } from '@/lib/types';
-import { Button } from '@/components/ui/Button';
-import { Card } from '@/components/ui/Card';
+import { Button } from '@/components/ui/button';
+import { Card } from '@/components/ui/card';
 import { SortableSection } from './SortableSection';
 import { AddSectionDialog } from './AddSectionDialog';
 import { useNavigationManager } from '@/hooks/useNavigationManager';

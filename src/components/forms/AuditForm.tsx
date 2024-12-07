@@ -1,11 +1,11 @@
-// src/components/forms/AuditForm.tsx
-import React, { useState } from 'react';
-import { useForm } from 'react-hook-form';
-import { Audit, Template, AuditResponse, Field } from '@/types';
-import { Button } from '@/components/ui/Button';
-import { Card } from '@/components/ui/Card';
-import { useAIRecommendations } from '@/hooks/useAIRecommendations';
-import { ImageUpload } from './ImageUpload';
+'use client';
+
+import React, { useState, useEffect } from 'react';
+import { Template, Audit, Section, Field } from '@/types/fields';
+import { Card } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { QuestionRenderer } from './QuestionRenderer';
+import { useNavigationManager } from '@/hooks/useNavigationManager';
 
 interface AuditFormProps {
   template: Template;
@@ -15,315 +15,190 @@ interface AuditFormProps {
 }
 
 export function AuditForm({ template, initialData, onSave, onComplete }: AuditFormProps) {
-  const { register, handleSubmit, watch, setValue } = useForm<Audit>({
-    defaultValues: initialData || {
-      responses: {},
-      status: 'draft',
-    },
-  });
-
-  const [activeSection, setActiveSection] = useState(0);
+  const { setUnsavedChanges } = useNavigationManager();
+  const [formData, setFormData] = useState<Record<string, any>>(initialData?.data || {});
+  const [currentSection, setCurrentSection] = useState(0);
   const [isSaving, setIsSaving] = useState(false);
-  const [isCompleting, setIsCompleting] = useState(false);
-  const { getRecommendation, isLoading: isAILoading, error: aiError } = useAIRecommendations();
-  const [loadingFields, setLoadingFields] = useState<Record<string, boolean>>({});
+  const [error, setError] = useState<string | null>(null);
 
-  const handleSave = async (data: Audit) => {
-    if (isSaving) return;
-    setIsSaving(true);
+  useEffect(() => {
+    const hasChanges = JSON.stringify(formData) !== JSON.stringify(initialData?.data || {});
+    setUnsavedChanges(hasChanges);
+  }, [formData, initialData?.data, setUnsavedChanges]);
+
+  const handleFieldChange = (fieldId: string, value: any) => {
+    setFormData(prev => ({
+      ...prev,
+      [fieldId]: value
+    }));
+  };
+
+  const calculateSectionScore = (section: Section) => {
+    let totalPoints = 0;
+    let earnedPoints = 0;
+
+    section.fields.forEach(field => {
+      if (!field.scoring) return;
+
+      const response = formData[field.id];
+      const points = field.scoring.points * (field.scoring.weight || 1);
+      totalPoints += points;
+
+      if (!response?.answer) return;
+
+      switch (field.scoring.scoringMethod) {
+        case 'binary':
+          if (field.options?.find(opt => opt.isCorrect && opt.value === response.answer)) {
+            earnedPoints += points;
+          }
+          break;
+        case 'partial':
+          const percentCorrect = calculatePercentageCorrect(field, response.answer);
+          earnedPoints += (points * percentCorrect) / 100;
+          break;
+        case 'custom':
+          if (field.scoring.customScoring && field.scoring.customScoring[response.answer]) {
+            earnedPoints += field.scoring.customScoring[response.answer] * (field.scoring.weight || 1);
+          }
+          break;
+      }
+    });
+
+    return {
+      earned: earnedPoints,
+      total: totalPoints,
+      percentage: totalPoints > 0 ? (earnedPoints / totalPoints) * 100 : 0
+    };
+  };
+
+  const calculatePercentageCorrect = (field: Field, answer: any) => {
+    return 100;
+  };
+
+  const handleSave = async (complete = false) => {
     try {
-      await onSave(data);
+      setIsSaving(true);
+      setError(null);
+
+      const sectionScores = template.sections.map(section => ({
+        sectionId: section.id,
+        ...calculateSectionScore(section)
+      }));
+
+      const totalScore = sectionScores.reduce(
+        (acc, score) => {
+          acc.earned += score.earned;
+          acc.total += score.total;
+          return acc;
+        },
+        { earned: 0, total: 0 }
+      );
+
+      const updatedAudit: Partial<Audit> = {
+        ...initialData,
+        data: formData,
+        scores: {
+          sections: sectionScores,
+          total: totalScore,
+          percentage: totalScore.total > 0 ? (totalScore.earned / totalScore.total) * 100 : 0
+        }
+      };
+
+      if (complete) {
+        await onComplete(updatedAudit as Audit);
+      } else {
+        await onSave(updatedAudit);
+      }
     } catch (error) {
       console.error('Error saving audit:', error);
-      window.alert('Failed to save the audit. Please try again.');
+      setError(error instanceof Error ? error.message : 'An error occurred while saving');
     } finally {
       setIsSaving(false);
     }
   };
 
-  const handleComplete = async (data: Audit) => {
-    if (isCompleting || isSaving) return;
-    
-    const confirmed = window.confirm('Are you sure you want to complete this audit? This action cannot be undone.');
-    if (!confirmed) return;
-    
-    setIsCompleting(true);
-    try {
-      await onComplete(data);
-    } catch (error) {
-      console.error('Error completing audit:', error);
-      window.alert('Failed to complete the audit. Please try again.');
-    } finally {
-      setIsCompleting(false);
-    }
-  };
-
-  const handleAIRecommendation = async (field: Field, value: string) => {
-    if (field.aiEnabled && value) {
-      setLoadingFields(prev => ({ ...prev, [field.id]: true }));
-      try {
-        const recommendation = await getRecommendation(value, field);
-        setValue(`responses.${field.id}.aiRecommendation`, recommendation);
-      } finally {
-        setLoadingFields(prev => ({ ...prev, [field.id]: false }));
-      }
-    }
-  };
-
-  const onSubmit = async (data: Audit) => {
-    if (!isCompleting) {
-      await handleComplete(data);
-    }
-  };
+  const currentSectionData = template.sections[currentSection];
 
   return (
-    <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
-      {/* Section Navigation */}
-      <div className="flex space-x-2 overflow-x-auto pb-4">
+    <div className="space-y-6">
+      <div className="flex gap-2 overflow-x-auto py-2">
         {template.sections.map((section, index) => (
           <Button
             key={section.id}
-            variant={activeSection === index ? 'default' : 'outline'}
-            onClick={() => setActiveSection(index)}
-            type="button"
+            variant={currentSection === index ? 'default' : 'outline'}
+            onClick={() => setCurrentSection(index)}
+            className="whitespace-nowrap"
           >
             {section.title}
           </Button>
         ))}
       </div>
 
-      {/* Active Section */}
-      <Card>
-        <h2 className="text-xl font-bold mb-4">
-          {template.sections[activeSection].title}
-        </h2>
+      {error && (
+        <div className="bg-red-50 border border-red-200 text-red-700 p-4 rounded-md">
+          {error}
+        </div>
+      )}
+
+      <Card className="p-6">
+        <h2 className="text-2xl font-bold mb-4">{currentSectionData.title}</h2>
+        {currentSectionData.description && (
+          <p className="text-gray-600 mb-6">{currentSectionData.description}</p>
+        )}
 
         <div className="space-y-6">
-          {template.sections[activeSection].fields.map((field) => (
-            <div key={field.id} className="space-y-4">
-              <label className="block">
-                <span className="text-gray-700">
-                  {field.question}
-                  {field.required && <span className="text-red-500">*</span>}
-                </span>
-
-                {/* Field Input Based on Type */}
-                {renderField(field, {
-                  register,
-                  watch,
-                  setValue,
-                  onAIRecommendation: handleAIRecommendation,
-                })}
-              </label>
-
-              {/* AI Recommendation Display */}
-              {field.aiEnabled && (
-                <div className="bg-blue-50 p-4 rounded-md">
-                  {loadingFields[field.id] ? (
-                    <div className="flex items-center text-blue-700">
-                      <svg className="animate-spin h-5 w-5 mr-2" viewBox="0 0 24 24">
-                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
-                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-                      </svg>
-                      Generating safety recommendation...
-                    </div>
-                  ) : watch(`responses.${field.id}.aiRecommendation`) ? (
-                    <>
-                      <h4 className="font-medium text-blue-800">AI Safety Recommendation:</h4>
-                      <p className="text-blue-700">
-                        {watch(`responses.${field.id}.aiRecommendation`)}
-                      </p>
-                    </>
-                  ) : null}
-                  {aiError && !loadingFields[field.id] && (
-                    <p className="text-red-600 text-sm mt-1">
-                      Error generating recommendation: {aiError}
-                    </p>
-                  )}
-                </div>
-              )}
-
-              {/* Image Upload */}
-              <ImageUpload
-                value={watch(`responses.${field.id}.photos`) || []}
-                onChange={(urls) => setValue(`responses.${field.id}.photos`, urls)}
-                maxFiles={5}
-                onError={(error) => window.alert(`Error uploading image: ${error}`)}
-              />
-
-              {/* Notes */}
-              <textarea
-                {...register(`responses.${field.id}.notes`)}
-                placeholder="Additional notes..."
-                className="w-full p-2 border rounded"
-                rows={2}
-              />
-            </div>
+          {currentSectionData.fields.map((field) => (
+            <QuestionRenderer
+              key={field.id}
+              field={field}
+              value={formData[field.id]}
+              onChange={(value) => handleFieldChange(field.id, value)}
+              disabled={isSaving}
+            />
           ))}
         </div>
       </Card>
 
-      {/* Navigation and Actions */}
-      <div className="flex justify-between items-center">
-        <div className="space-x-2">
-          <Button
-            type="button"
-            variant="outline"
-            disabled={activeSection === 0 || isSaving || isCompleting}
-            onClick={() => setActiveSection(prev => prev - 1)}
-          >
-            Previous
-          </Button>
-          <Button
-            type="button"
-            variant="outline"
-            disabled={activeSection === template.sections.length - 1 || isSaving || isCompleting}
-            onClick={() => setActiveSection(prev => prev + 1)}
-          >
-            Next
-          </Button>
+      <div className="flex justify-between">
+        <div>
+          {currentSection > 0 && (
+            <Button
+              onClick={() => setCurrentSection(prev => prev - 1)}
+              variant="outline"
+              disabled={isSaving}
+            >
+              Previous Section
+            </Button>
+          )}
         </div>
-
         <div className="space-x-2">
           <Button
-            type="button"
+            onClick={() => handleSave(false)}
             variant="outline"
-            onClick={() => handleSubmit(handleSave)()}
-            disabled={isSaving || isCompleting}
+            disabled={isSaving}
           >
-            {isSaving ? (
-              <div className="flex items-center">
-                <svg className="animate-spin h-4 w-4 mr-2" viewBox="0 0 24 24">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-                </svg>
-                Saving...
-              </div>
-            ) : 'Save Draft'}
+            Save Progress
           </Button>
-          <Button
-            type="submit"
-            disabled={isSaving || isCompleting}
-          >
-            {isCompleting ? (
-              <div className="flex items-center">
-                <svg className="animate-spin h-4 w-4 mr-2" viewBox="0 0 24 24">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-                </svg>
-                Completing...
-              </div>
-            ) : 'Complete Audit'}
-          </Button>
+
+          {currentSection < template.sections.length - 1 ? (
+            <Button
+              onClick={() => setCurrentSection(prev => prev + 1)}
+              disabled={isSaving}
+            >
+              Next Section
+            </Button>
+          ) : (
+            <Button
+              onClick={() => handleSave(true)}
+              disabled={isSaving}
+            >
+              Complete Audit
+            </Button>
+          )}
         </div>
       </div>
-    </form>
+    </div>
   );
 }
 
-// Helper function to render different field types
-function renderField(
-  field: Field,
-  {
-    register,
-    watch,
-    setValue,
-    onAIRecommendation,
-  }: {
-    register: any;
-    watch: any;
-    setValue: any;
-    onAIRecommendation: (field: Field, value: string) => Promise<void>;
-  }
-) {
-  const baseProps = {
-    ...register(`responses.${field.id}.value`, {
-      required: field.required,
-    }),
-    className: "mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-300 focus:ring focus:ring-blue-200 focus:ring-opacity-50",
-  };
-
-  switch (field.type) {
-    case 'text':
-      return (
-        <input
-          type="text"
-          {...baseProps}
-          onChange={(e) => {
-            baseProps.onChange(e);
-            onAIRecommendation(field, e.target.value);
-          }}
-        />
-      );
-
-    case 'number':
-      return <input type="number" {...baseProps} />;
-
-    case 'yesNo':
-      return (
-        <select {...baseProps}>
-          <option value="">Select...</option>
-          <option value="yes">Yes</option>
-          <option value="no">No</option>
-        </select>
-      );
-
-    case 'multipleChoice':
-      return (
-        <select {...baseProps}>
-          <option value="">Select...</option>
-          {field.options?.map((option) => (
-            <option key={option} value={option}>
-              {option}
-            </option>
-          ))}
-        </select>
-      );
-
-    case 'checkbox':
-      return (
-        <div className="space-y-2">
-          {field.settings?.checkboxOptions?.map((option) => (
-            <label key={option} className="flex items-center">
-              <input
-                type="checkbox"
-                value={option}
-                {...register(`responses.${field.id}.value`)}
-                className="rounded border-gray-300 text-blue-600 shadow-sm focus:border-blue-300 focus:ring focus:ring-blue-200 focus:ring-opacity-50"
-              />
-              <span className="ml-2">{option}</span>
-            </label>
-          ))}
-        </div>
-      );
-
-    case 'date':
-      return <input type="date" {...baseProps} />;
-
-    case 'slider':
-      return (
-        <div className="space-y-2">
-          <input
-            type="range"
-            min={field.settings?.sliderMin ?? 0}
-            max={field.settings?.sliderMax ?? 100}
-            step={field.settings?.sliderStep ?? 1}
-            {...baseProps}
-          />
-          <div className="text-sm text-gray-500">
-            Value: {watch(`responses.${field.id}.value`) ?? field.settings?.sliderMin ?? 0}
-          </div>
-        </div>
-      );
-
-    case 'instruction':
-      return (
-        <div className="bg-gray-50 p-4 rounded">
-          <p className="text-gray-700">{field.question}</p>
-        </div>
-      );
-
-    default:
-      return null;
-  }
-}
+export default AuditForm;

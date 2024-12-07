@@ -116,6 +116,109 @@ export async function GET(request: Request) {
   }
 }
 
+export async function PUT(request: Request) {
+  try {
+    // Get template ID from the URL
+    const pathname = new URL(request.url).pathname;
+    const id = pathname.split('/').pop();
+
+    if (!id) {
+      console.log('[PUT] No template ID provided');
+      return NextResponse.json({ 
+        success: false, 
+        error: 'Template ID is required' 
+      }, { status: 400 });
+    }
+
+    const session = await getServerSession(authOptions);
+    if (!session?.user?.email) {
+      console.log('[PUT] No session or email');
+      return NextResponse.json({ 
+        success: false, 
+        error: 'Authentication required' 
+      }, { status: 401 });
+    }
+
+    // Get the user
+    const user = await prisma.user.findUnique({
+      where: { email: session.user.email },
+      select: { id: true }
+    });
+
+    if (!user) {
+      console.log('[PUT] User not found');
+      return NextResponse.json({ 
+        success: false, 
+        error: 'User not found' 
+      }, { status: 404 });
+    }
+
+    // Get the request body
+    const updatedTemplate = await request.json();
+
+    // Update the template
+    const template = await prisma.template.update({
+      where: {
+        id,
+        userId: user.id, // Ensure the user owns the template
+        isArchived: false
+      },
+      data: {
+        name: updatedTemplate.name,
+        description: updatedTemplate.description,
+        sections: {
+          deleteMany: {},
+          create: updatedTemplate.sections.map((section: any, sectionIndex: number) => ({
+            title: section.title,
+            order: sectionIndex,
+            fields: {
+              create: section.fields.map((field: any, fieldIndex: number) => ({
+                type: field.type,
+                question: field.question,
+                required: field.required,
+                order: fieldIndex,
+                aiEnabled: field.aiEnabled,
+                options: field.options,
+                settings: field.settings,
+                scoring: field.scoring
+              }))
+            }
+          }))
+        },
+        updatedAt: new Date()
+      },
+      include: {
+        sections: {
+          include: {
+            fields: {
+              orderBy: {
+                order: 'asc'
+              }
+            }
+          },
+          orderBy: {
+            order: 'asc'
+          }
+        }
+      }
+    });
+
+    console.log('[PUT] Template updated successfully');
+    return NextResponse.json({ success: true, data: template });
+
+  } catch (error) {
+    console.error('[PUT] Error updating template:', error);
+    return NextResponse.json(
+      { 
+        success: false, 
+        error: 'Failed to update template',
+        details: process.env.NODE_ENV === 'development' ? error instanceof Error ? error.message : String(error) : undefined
+      },
+      { status: 500 }
+    );
+  }
+}
+
 export async function DELETE(request: Request) {
   try {
     // Get template ID from the URL

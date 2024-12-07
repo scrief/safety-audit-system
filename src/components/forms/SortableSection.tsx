@@ -6,8 +6,8 @@ import { CSS } from '@dnd-kit/utilities';
 import { DndContext, useSensors, useSensor, PointerSensor, closestCenter } from '@dnd-kit/core';
 import { arrayMove, SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { Section } from '@/types';
-import { Button } from '@/components/ui/Button';
-import { Card } from '@/components/ui/Card';
+import { Button } from '@/components/ui/button';
+import { Card } from '@/components/ui/card';
 import { SortableField } from './SortableField';
 
 interface SortableSectionProps {
