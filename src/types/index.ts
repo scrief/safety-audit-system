@@ -64,3 +64,44 @@ export interface Tag {
   createdAt: Date;
   updatedAt: Date;
 }
+
+export interface AuditResponse {
+  value: string | number | boolean | string[];
+  aiRecommendation?: string;
+  notes?: string;
+  photos?: string[];
+}
+
+export interface Audit {
+  id?: string;
+  templateId: string;
+  userId: string;
+  status: 'draft' | 'completed';
+  responses: Record<string, AuditResponse>;
+  score?: number;
+  createdAt?: Date;
+  updatedAt?: Date;
+}
+
+export interface Client {
+  id: string;
+  name: string;
+  industry: string;
+  employeeCount: number;
+  locations: number;
+  riskLevel: 'LOW' | 'MEDIUM' | 'HIGH';
+  logo?: string;
+  contacts: Array<{
+    name: string;
+    email: string;
+    phone?: string;
+    title?: string;
+  }>;
+}
+
+export interface ApiResponse<T> {
+  success: boolean;
+  data: T | null;
+  error?: string;
+  message?: string;
+}

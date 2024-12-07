@@ -1,4 +1,3 @@
-// src/components/ui/Button.tsx
 "use client";
 
 import React from 'react';
@@ -10,20 +9,37 @@ const buttonVariants = cva(
   {
     variants: {
       variant: {
-        default: 'bg-slate-900 text-white hover:bg-slate-700',
-        destructive: 'bg-red-500 text-white hover:bg-red-600',
-        outline: 'bg-transparent border border-slate-200 hover:bg-slate-100',
-        ghost: 'bg-transparent hover:bg-slate-100',
-        link: 'bg-transparent underline-offset-4 hover:underline text-slate-900',
+        // Primary action buttons (Create New, Submit, etc.)
+        primary: 'bg-blue-600 text-white hover:bg-blue-700',
+        
+        // Secondary actions (Edit, View, etc.)
+        secondary: 'bg-gray-100 text-gray-700 hover:bg-gray-200',
+        
+        // Positive actions (Start, Complete, etc.)
+        success: 'bg-green-600 text-white hover:bg-green-700',
+        
+        // Destructive actions (Delete, Remove, etc.)
+        destructive: 'bg-red-50 text-red-600 hover:bg-red-100',
+        
+        // Outline style for less prominent actions
+        outline: 'bg-white border border-gray-300 text-gray-700 hover:bg-gray-50',
+        
+        // Ghost style for subtle actions
+        ghost: 'bg-transparent hover:bg-gray-100',
+        
+        // Cancel actions
+        cancel: 'bg-gray-100 text-gray-600 hover:bg-gray-200',
       },
       size: {
         default: 'h-10 py-2 px-4',
-        sm: 'h-9 px-2 rounded-md',
-        lg: 'h-11 px-8 rounded-md',
+        sm: 'h-9 px-3 text-sm',
+        lg: 'h-11 px-8 text-lg',
+        icon: 'h-10 w-10', // Square button for icons
+        iconSm: 'h-9 w-9', // Smaller square for icons
       },
     },
     defaultVariants: {
-      variant: 'default',
+      variant: 'primary',
       size: 'default',
     },
   }
@@ -77,135 +93,3 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
 Button.displayName = 'Button';
 
 export { Button, buttonVariants };
-
-// src/components/ui/Input.tsx
-import React from 'react';
-
-interface InputProps extends React.InputHTMLAttributes<HTMLInputElement> {
-  label?: string;
-  error?: string;
-}
-
-const Input = React.forwardRef<HTMLInputElement, InputProps>(
-  ({ className, label, error, ...props }, ref) => {
-    return (
-      <div className="space-y-2">
-        {label && (
-          <label className="text-sm font-medium text-gray-700">
-            {label}
-          </label>
-        )}
-        <input
-          className={`
-            w-full rounded-md border border-gray-300 px-3 py-2 text-sm
-            focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent
-            disabled:opacity-50 disabled:bg-gray-50
-            ${error ? 'border-red-500' : ''}
-            ${className}
-          `}
-          ref={ref}
-          {...props}
-        />
-        {error && (
-          <p className="text-sm text-red-500">{error}</p>
-        )}
-      </div>
-    );
-  }
-);
-Input.displayName = 'Input';
-
-export { Input };
-
-// src/components/ui/Select.tsx
-import React from 'react';
-
-interface Option {
-  label: string;
-  value: string;
-}
-
-interface SelectProps extends Omit<React.SelectHTMLAttributes<HTMLSelectElement>, 'onChange'> {
-  label?: string;
-  error?: string;
-  options: Option[];
-  onChange?: (value: string) => void;
-}
-
-const Select = React.forwardRef<HTMLSelectElement, SelectProps>(
-  ({ className, label, error, options, onChange, ...props }, ref) => {
-    return (
-      <div className="space-y-2">
-        {label && (
-          <label className="text-sm font-medium text-gray-700">
-            {label}
-          </label>
-        )}
-        <select
-          className={`
-            w-full rounded-md border border-gray-300 px-3 py-2 text-sm
-            focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent
-            disabled:opacity-50 disabled:bg-gray-50
-            ${error ? 'border-red-500' : ''}
-            ${className}
-          `}
-          ref={ref}
-          onChange={(e) => onChange?.(e.target.value)}
-          {...props}
-        >
-          {options.map((option) => (
-            <option key={option.value} value={option.value}>
-              {option.label}
-            </option>
-          ))}
-        </select>
-        {error && (
-          <p className="text-sm text-red-500">{error}</p>
-        )}
-      </div>
-    );
-  }
-);
-Select.displayName = 'Select';
-
-export { Select };
-
-// src/components/ui/Card.tsx
-interface CardProps {
-  children: React.ReactNode;
-  className?: string;
-}
-
-export function Card({ children, className }: CardProps) {
-  return (
-    <div className={`bg-white shadow rounded-lg p-6 ${className}`}>
-      {children}
-    </div>
-  );
-}
-
-// src/components/ui/Dialog.tsx
-import { Dialog as HeadlessDialog } from '@headlessui/react';
-
-interface DialogProps {
-  isOpen: boolean;
-  onClose: () => void;
-  title: string;
-  children: React.ReactNode;
-}
-
-export function Dialog({ isOpen, onClose, title, children }: DialogProps) {
-  return (
-    <HeadlessDialog open={isOpen} onClose={onClose} className="relative z-50">
-      <div className="fixed inset-0 bg-black/30" aria-hidden="true" />
-      <div className="fixed inset-0 flex items-center justify-center p-4">
-        <HeadlessDialog.Panel className="mx-auto max-w-sm rounded bg-white p-6">
-          <HeadlessDialog.Title className="text-lg font-medium mb-4">
-            {title}
-          </HeadlessDialog.Title>
-          {children}
-        </HeadlessDialog.Panel>
-      </div>
-    </HeadlessDialog>
-  );
-}

@@ -2,229 +2,209 @@ import { NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '../../auth/[...nextauth]/route';
 import { prisma } from '@/lib/prisma';
+import { headers } from 'next/headers';
 
-async function authenticate(session: any) {
-  if (!session?.user?.email) {
-    return NextResponse.json(
-      { success: false, error: 'Unauthorized' },
-      { status: 401 }
-    );
-  }
-  return null;
-}
+async function getTemplate(id: string, userEmail: string) {
+  console.log(`[getTemplate] Getting template. ID: ${id}, User: ${userEmail}`);
 
-async function getUser(session: any) {
   const user = await prisma.user.findUnique({
-    where: { email: session.user.email },
+    where: { email: userEmail },
+    select: { id: true }
   });
 
-  if (!user) {
-    return NextResponse.json(
-      { success: false, error: 'User not found' },
-      { status: 404 }
-    );
+  if (!user?.id) {
+    console.log('[getTemplate] User not found');
+    return { success: false, error: 'User not found' };
   }
 
-  return user;
-}
-
-async function getTemplate(id: string) {
-  const template = await prisma.template.findUnique({
-    where: { id },
-    include: {
-      sections: {
-        include: {
-          fields: true,
-        },
-        orderBy: {
-          order: 'asc',
-        },
+  try {
+    const template = await prisma.template.findFirst({
+      where: {
+        id,
+        OR: [
+          // Templates created by the user
+          {
+            userId: user.id,
+            isArchived: false
+          },
+          // Templates assigned to any client
+          {
+            isArchived: false,
+            assignedClients: {
+              some: {} // At least one client assignment
+            }
+          }
+        ]
       },
-      tags: true,
-    },
-  });
+      include: {
+        sections: {
+          include: {
+            fields: {
+              orderBy: {
+                order: 'asc'
+              }
+            }
+          },
+          orderBy: {
+            order: 'asc'
+          }
+        },
+        createdBy: {
+          select: {
+            id: true,
+            name: true,
+            email: true
+          }
+        }
+      }
+    });
 
-  if (!template) {
-    return NextResponse.json(
-      { success: false, error: 'Template not found' },
-      { status: 404 }
-    );
-  }
+    if (!template) {
+      console.log('[getTemplate] Template not found or no access');
+      return { success: false, error: 'Template not found or you don\'t have access to it' };
+    }
 
-  return template;
-};
+    return { success: true, data: template };
 
-export async function GET(
-  request: Request,
-  { params }: { params: { id: string } }
-) {
-  try {
-    const id = params.id;
-    const session = await getServerSession(authOptions);
-    const authResponse = await authenticate(session);
-    if (authResponse) return authResponse;
-
-    const template = await getTemplate(id);
-
-    if (template instanceof NextResponse) return template;
-
-    return NextResponse.json({ success: true, data: template });
   } catch (error) {
-    console.error('Error fetching template:', error);
-    return NextResponse.json(
-      { success: false, error: 'Failed to fetch template' },
-      { status: 500 }
-    );
+    console.error('[getTemplate] Database error:', error);
+    return { success: false, error: 'Database error occurred while fetching template' };
   }
 }
 
-export async function DELETE(
-  request: Request,
-  { params }: { params: { id: string } }
-) {
+export async function GET(request: Request) {
   try {
-    const id = params.id;
+    // Get template ID from the URL
+    const pathname = new URL(request.url).pathname;
+    const id = pathname.split('/').pop();
+
+    if (!id) {
+      console.log('[GET] No template ID provided');
+      return NextResponse.json({ 
+        success: false, 
+        error: 'Template ID is required' 
+      }, { status: 400 });
+    }
+
     const session = await getServerSession(authOptions);
-    const authResponse = await authenticate(session);
-    if (authResponse) return authResponse;
+    if (!session?.user?.email) {
+      console.log('[GET] No session or email');
+      return NextResponse.json({ 
+        success: false, 
+        error: 'Authentication required' 
+      }, { status: 401 });
+    }
 
-    const user = await getUser(session);
-    if (user instanceof NextResponse) return user;
+    const result = await getTemplate(id, session.user.email);
+    console.log('[GET] Template fetch result:', { success: result.success, error: result.error });
+    
+    if (!result.success) {
+      return NextResponse.json(result, { 
+        status: result.error === 'Template not found' || result.error.includes('access') ? 404 : 500 
+      });
+    }
 
-    const template = await prisma.template.findUnique({
-      where: { id },
+    return NextResponse.json(result);
+
+  } catch (error) {
+    console.error('[GET] Unexpected error:', error);
+    return NextResponse.json({ 
+      success: false, 
+      error: 'An unexpected error occurred',
+      details: process.env.NODE_ENV === 'development' ? error instanceof Error ? error.message : String(error) : undefined
+    }, { status: 500 });
+  }
+}
+
+export async function DELETE(request: Request) {
+  try {
+    // Get template ID from the URL
+    const pathname = new URL(request.url).pathname;
+    const id = pathname.split('/').pop();
+
+    if (!id) {
+      return NextResponse.json(
+        { success: false, error: 'Template ID is required' },
+        { status: 400 }
+      );
+    }
+
+    const session = await getServerSession(authOptions);
+    if (!session?.user?.email) {
+      return NextResponse.json(
+        { success: false, error: 'Not authenticated' },
+        { status: 401 }
+      );
+    }
+
+    // Find the user
+    const user = await prisma.user.findUnique({
+      where: { email: session.user.email },
+    });
+
+    if (!user) {
+      return NextResponse.json(
+        { success: false, error: 'User not found' },
+        { status: 404 }
+      );
+    }
+
+    // Check if template exists and belongs to the user
+    const template = await prisma.template.findFirst({
+      where: {
+        id,
+        userId: user.id,
+      },
+      include: {
+        audits: {
+          select: { id: true }
+        }
+      }
     });
 
     if (!template) {
       return NextResponse.json(
-        { success: false, error: 'Template not found' },
+        { success: false, error: 'Template not found or you don\'t have permission to delete it' },
         { status: 404 }
       );
     }
 
-    if (template.userId !== user.id) {
-      return NextResponse.json(
-        { success: false, error: 'Unauthorized to delete this template' },
-        { status: 403 }
-      );
+    // Check if template has any audits
+    if (template.audits.length > 0) {
+      // If template has audits, we mark it as archived instead of deleting
+      await prisma.template.update({
+        where: { id },
+        data: { isArchived: true }
+      });
+
+      return NextResponse.json({ 
+        success: true,
+        message: 'Template has been archived because it has associated audits'
+      });
     }
 
+    // If no audits exist, proceed with deletion
+    // Thanks to onDelete: Cascade in our schema, this will automatically delete:
+    // - All sections (which will delete their fields)
+    // - All client template assignments
+    // - All template tags
     await prisma.template.delete({
-      where: { id },
+      where: { id }
     });
 
-    return NextResponse.json({ success: true });
+    return NextResponse.json({ 
+      success: true,
+      message: 'Template has been permanently deleted'
+    });
   } catch (error) {
     console.error('Error deleting template:', error);
     return NextResponse.json(
-      { success: false, error: 'Failed to delete template' },
+      { 
+        success: false, 
+        error: 'Failed to delete template',
+        details: process.env.NODE_ENV === 'development' ? error instanceof Error ? error.message : String(error) : undefined
+      },
       { status: 500 }
     );
-  }
-}
-
-export async function POST(
-  request: Request,
-  { params }: { params: { id: string } }
-) {
-  try {
-    const id = params.id;
-    console.log('Starting template duplication for ID:', id);
-    
-    const session = await getServerSession(authOptions);
-    const authResponse = await authenticate(session);
-    if (authResponse) return authResponse;
-
-    const user = await getUser(session);
-    if (user instanceof NextResponse) return user;
-
-    const sourceTemplate = await prisma.template.findUnique({
-      where: { id },
-      include: {
-        sections: {
-          include: {
-            fields: true,
-          },
-          orderBy: {
-            order: 'asc',
-          },
-        },
-        tags: true,
-      },
-    });
-
-    if (!sourceTemplate) {
-      console.log('Template not found:', id);
-      return NextResponse.json(
-        { success: false, error: 'Template not found' },
-        { status: 404 }
-      );
-    }
-
-    console.log('Found template:', sourceTemplate.id);
-
-    // Create duplicate template data
-    const duplicateData = {
-      name: `${sourceTemplate.name} (Copy)`,
-      description: sourceTemplate.description,
-      disclaimer: sourceTemplate.disclaimer,
-      userId: user.id,
-      sections: {
-        create: sourceTemplate.sections.map(section => ({
-          title: section.title,
-          description: section.description,
-          order: section.order,
-          weight: section.weight,
-          fields: {
-            create: section.fields.map(field => ({
-              question: field.question,
-              type: field.type,
-              required: field.required,
-              order: field.order,
-              options: field.options,
-              settings: field.settings,
-              aiEnabled: field.aiEnabled,
-              scoring: field.scoring,
-            })),
-          },
-        })),
-      },
-    };
-
-    // Add tags if they exist
-    if (sourceTemplate.tags && sourceTemplate.tags.length > 0) {
-      duplicateData.tags = {
-        connect: sourceTemplate.tags.map(tag => ({ id: tag.id })),
-      };
-    }
-
-    console.log('Creating duplicate template...');
-    const duplicatedTemplate = await prisma.template.create({
-      data: duplicateData,
-      include: {
-        sections: {
-          include: {
-            fields: true,
-          },
-        },
-        tags: true,
-      },
-    });
-
-    console.log('Successfully duplicated template:', duplicatedTemplate.id);
-    return NextResponse.json({ 
-      success: true, 
-      data: duplicatedTemplate 
-    });
-
-  } catch (error) {
-    console.error('Error duplicating template:', error);
-    return NextResponse.json({ 
-      success: false, 
-      error: error instanceof Error ? error.message : 'Failed to duplicate template',
-      details: process.env.NODE_ENV === 'development' ? String(error) : undefined
-    }, { 
-      status: 500 
-    });
   }
 }

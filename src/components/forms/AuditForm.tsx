@@ -24,33 +24,60 @@ export function AuditForm({ template, initialData, onSave, onComplete }: AuditFo
 
   const [activeSection, setActiveSection] = useState(0);
   const [isSaving, setIsSaving] = useState(false);
-  const { getRecommendation } = useAIRecommendations();
+  const [isCompleting, setIsCompleting] = useState(false);
+  const { getRecommendation, isLoading: isAILoading, error: aiError } = useAIRecommendations();
+  const [loadingFields, setLoadingFields] = useState<Record<string, boolean>>({});
 
   const handleSave = async (data: Audit) => {
+    if (isSaving) return;
     setIsSaving(true);
     try {
       await onSave(data);
+    } catch (error) {
+      console.error('Error saving audit:', error);
+      window.alert('Failed to save the audit. Please try again.');
     } finally {
       setIsSaving(false);
     }
   };
 
   const handleComplete = async (data: Audit) => {
-    const confirmed = window.confirm('Are you sure you want to complete this audit?');
-    if (confirmed) {
+    if (isCompleting || isSaving) return;
+    
+    const confirmed = window.confirm('Are you sure you want to complete this audit? This action cannot be undone.');
+    if (!confirmed) return;
+    
+    setIsCompleting(true);
+    try {
       await onComplete(data);
+    } catch (error) {
+      console.error('Error completing audit:', error);
+      window.alert('Failed to complete the audit. Please try again.');
+    } finally {
+      setIsCompleting(false);
     }
   };
 
   const handleAIRecommendation = async (field: Field, value: string) => {
     if (field.aiEnabled && value) {
-      const recommendation = await getRecommendation(value, field);
-      setValue(`responses.${field.id}.aiRecommendation`, recommendation);
+      setLoadingFields(prev => ({ ...prev, [field.id]: true }));
+      try {
+        const recommendation = await getRecommendation(value, field);
+        setValue(`responses.${field.id}.aiRecommendation`, recommendation);
+      } finally {
+        setLoadingFields(prev => ({ ...prev, [field.id]: false }));
+      }
+    }
+  };
+
+  const onSubmit = async (data: Audit) => {
+    if (!isCompleting) {
+      await handleComplete(data);
     }
   };
 
   return (
-    <form onSubmit={handleSubmit(handleComplete)} className="space-y-6">
+    <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
       {/* Section Navigation */}
       <div className="flex space-x-2 overflow-x-auto pb-4">
         {template.sections.map((section, index) => (
@@ -90,12 +117,29 @@ export function AuditForm({ template, initialData, onSave, onComplete }: AuditFo
               </label>
 
               {/* AI Recommendation Display */}
-              {field.aiEnabled && watch(`responses.${field.id}.aiRecommendation`) && (
+              {field.aiEnabled && (
                 <div className="bg-blue-50 p-4 rounded-md">
-                  <h4 className="font-medium text-blue-800">AI Safety Recommendation:</h4>
-                  <p className="text-blue-700">
-                    {watch(`responses.${field.id}.aiRecommendation`)}
-                  </p>
+                  {loadingFields[field.id] ? (
+                    <div className="flex items-center text-blue-700">
+                      <svg className="animate-spin h-5 w-5 mr-2" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                      </svg>
+                      Generating safety recommendation...
+                    </div>
+                  ) : watch(`responses.${field.id}.aiRecommendation`) ? (
+                    <>
+                      <h4 className="font-medium text-blue-800">AI Safety Recommendation:</h4>
+                      <p className="text-blue-700">
+                        {watch(`responses.${field.id}.aiRecommendation`)}
+                      </p>
+                    </>
+                  ) : null}
+                  {aiError && !loadingFields[field.id] && (
+                    <p className="text-red-600 text-sm mt-1">
+                      Error generating recommendation: {aiError}
+                    </p>
+                  )}
                 </div>
               )}
 
@@ -104,6 +148,7 @@ export function AuditForm({ template, initialData, onSave, onComplete }: AuditFo
                 value={watch(`responses.${field.id}.photos`) || []}
                 onChange={(urls) => setValue(`responses.${field.id}.photos`, urls)}
                 maxFiles={5}
+                onError={(error) => window.alert(`Error uploading image: ${error}`)}
               />
 
               {/* Notes */}
@@ -124,7 +169,7 @@ export function AuditForm({ template, initialData, onSave, onComplete }: AuditFo
           <Button
             type="button"
             variant="outline"
-            disabled={activeSection === 0}
+            disabled={activeSection === 0 || isSaving || isCompleting}
             onClick={() => setActiveSection(prev => prev - 1)}
           >
             Previous
@@ -132,7 +177,7 @@ export function AuditForm({ template, initialData, onSave, onComplete }: AuditFo
           <Button
             type="button"
             variant="outline"
-            disabled={activeSection === template.sections.length - 1}
+            disabled={activeSection === template.sections.length - 1 || isSaving || isCompleting}
             onClick={() => setActiveSection(prev => prev + 1)}
           >
             Next
@@ -144,15 +189,31 @@ export function AuditForm({ template, initialData, onSave, onComplete }: AuditFo
             type="button"
             variant="outline"
             onClick={() => handleSubmit(handleSave)()}
-            disabled={isSaving}
+            disabled={isSaving || isCompleting}
           >
-            Save Draft
+            {isSaving ? (
+              <div className="flex items-center">
+                <svg className="animate-spin h-4 w-4 mr-2" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                </svg>
+                Saving...
+              </div>
+            ) : 'Save Draft'}
           </Button>
           <Button
             type="submit"
-            disabled={isSaving}
+            disabled={isSaving || isCompleting}
           >
-            Complete Audit
+            {isCompleting ? (
+              <div className="flex items-center">
+                <svg className="animate-spin h-4 w-4 mr-2" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                </svg>
+                Completing...
+              </div>
+            ) : 'Complete Audit'}
           </Button>
         </div>
       </div>

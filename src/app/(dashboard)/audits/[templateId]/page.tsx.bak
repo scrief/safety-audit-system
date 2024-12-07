@@ -1,0 +1,165 @@
+'use client';
+
+import { useEffect, useState } from 'react';
+import { useSession } from 'next-auth/react';
+import { useRouter, useParams } from 'next/navigation';
+import { Template, Audit } from '@/types';
+import { AuditForm } from '@/components/forms/AuditForm';
+import { Spinner } from '@/components/ui/Spinner';
+
+export default function NewAuditPage() {
+  const params = useParams();
+  const templateId = params?.templateId as string;
+  const router = useRouter();
+  const { data: session, status } = useSession({
+    required: true,
+    onUnauthenticated() {
+      router.push('/auth/signin');
+    },
+  });
+
+  const [template, setTemplate] = useState<Template | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (status === 'loading') {
+      return; // Wait for session to load
+    }
+
+    async function fetchTemplate() {
+      if (!templateId) {
+        setError('No template ID provided');
+        setIsLoading(false);
+        return;
+      }
+
+      try {
+        const response = await fetch(`/api/templates/${templateId}`, {
+          method: 'GET',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+        });
+
+        const text = await response.text();
+        
+        // Only try to parse if we have content
+        if (!text) {
+          setError('Empty response from server');
+          return;
+        }
+
+        let result;
+        try {
+          result = JSON.parse(text);
+        } catch (e) {
+          setError('Invalid response format from server');
+          return;
+        }
+
+        // Validate response structure
+        if (!result || typeof result !== 'object') {
+          setError('Invalid response structure from server');
+          return;
+        }
+
+        if (!response.ok) {
+          setError(result.error || `Server error: ${response.status}`);
+          return;
+        }
+
+        if (!result.success || !result.data) {
+          setError(result.error || 'Failed to load template data');
+          return;
+        }
+
+        // Validate template data
+        const template = result.data;
+        if (!template.id || !template.name) {
+          setError('Invalid template data received');
+          return;
+        }
+
+        setTemplate(template);
+      } catch (error) {
+        setError(error instanceof Error ? error.message : 'Failed to load template');
+      } finally {
+        setIsLoading(false);
+      }
+    }
+
+    fetchTemplate();
+  }, [templateId, router, status]);
+
+  const handleSave = async (data: Partial<Audit>) => {
+    try {
+      const response = await fetch('/api/audits', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          ...data,
+          templateId,
+          userId: session?.user?.id,
+        }),
+      });
+
+      const result = await response.json();
+      
+      if (!result.success) {
+        throw new Error(result.error || 'Failed to save audit');
+      }
+
+      return result.data;
+    } catch (error) {
+      console.error('Error saving audit:', error);
+      throw error;
+    }
+  };
+
+  if (isLoading) {
+    return (
+      <div className="flex justify-center items-center min-h-screen">
+        <Spinner size="lg" />
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-screen p-4">
+        <div className="bg-red-50 border border-red-200 rounded-lg p-4 max-w-md w-full text-center">
+          <h2 className="text-red-800 text-lg font-semibold mb-2">Error Loading Template</h2>
+          <p className="text-red-600">{error}</p>
+          <button
+            onClick={() => router.push('/audits')}
+            className="mt-4 px-4 py-2 bg-red-100 text-red-800 rounded hover:bg-red-200 transition-colors"
+          >
+            Back to Audits
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (!template) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-screen p-4">
+        <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 max-w-md w-full text-center">
+          <h2 className="text-yellow-800 text-lg font-semibold mb-2">Template Not Found</h2>
+          <p className="text-yellow-600">The requested template could not be found.</p>
+          <button
+            onClick={() => router.push('/audits')}
+            className="mt-4 px-4 py-2 bg-yellow-100 text-yellow-800 rounded hover:bg-yellow-200 transition-colors"
+          >
+            Back to Audits
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  return <AuditForm template={template} onSave={handleSave} />;
+}

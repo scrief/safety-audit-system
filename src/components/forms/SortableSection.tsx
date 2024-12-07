@@ -44,16 +44,17 @@ export function SortableSection({ section, onUpdate, onDelete }: SortableSection
 
   const handleAddField = () => {
     console.log('Add Field clicked');
-    console.log('Section before update:', section);
+    const fieldNumber = section.fields.length + 1;
     const newField = {
       id: crypto.randomUUID(),
-      type: 'text',
-      question: '',
+      type: 'TEXT',
+      question: `Question ${fieldNumber}`,
       required: false,
       aiEnabled: false,
       options: [],
       settings: {},
       order: section.fields.length,
+      scoring: {},
     };
     console.log('New field:', newField);
     onUpdate(section.id, {

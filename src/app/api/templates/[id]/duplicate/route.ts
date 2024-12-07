@@ -2,18 +2,20 @@ import { NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '../../../auth/[...nextauth]/route';
 import { prisma } from '@/lib/prisma';
+import { Template } from '@/types';
 
 export async function POST(
   request: Request,
   { params }: { params: { id: string } }
 ) {
   try {
-    console.log('Starting template duplication for ID:', params.id);
+    // Await params.id to fix Next.js warning
+    const id = await Promise.resolve(params.id);
+    console.log('Starting template duplication for ID:', id);
     
     // 1. Session Check
     const session = await getServerSession(authOptions);
     if (!session?.user?.email) {
-      console.log('No session found');
       return NextResponse.json(
         { success: false, error: 'You must be logged in to duplicate templates' },
         { status: 401 }
@@ -33,11 +35,9 @@ export async function POST(
       );
     }
 
-    console.log('Found user:', user.id);
-
     // 3. Get source template with all relations
     const sourceTemplate = await prisma.template.findUnique({
-      where: { id: params.id },
+      where: { id },
       include: {
         sections: {
           include: {
@@ -52,31 +52,49 @@ export async function POST(
     });
 
     if (!sourceTemplate) {
-      console.log('Template not found:', params.id);
+      console.log('Template not found:', id);
       return NextResponse.json(
         { success: false, error: 'Template not found' },
         { status: 404 }
       );
     }
 
-    console.log('Found template:', sourceTemplate.id);
-    console.log('Template sections:', sourceTemplate.sections.length);
-    console.log('Template tags:', sourceTemplate.tags.length);
+    // 4. Get the payload from the request
+    let duplicateTemplate: Template;
+    try {
+      const payload = await request.json();
+      if (!payload || typeof payload !== 'object') {
+        throw new Error('Invalid template data received');
+      }
+      duplicateTemplate = payload;
+    } catch (error) {
+      return NextResponse.json(
+        { 
+          success: false, 
+          error: 'Invalid template data',
+          details: error instanceof Error ? error.message : 'Failed to parse template data'
+        },
+        { status: 400 }
+      );
+    }
 
-    // 4. Create duplicate template with all relations
+    // 5. Create duplicate template with all relations
     const duplicateData = {
-      name: `${sourceTemplate.name} (Copy)`,
-      description: sourceTemplate.description || '',
+      id: duplicateTemplate.id,
+      name: duplicateTemplate.name,
+      description: duplicateTemplate.description || '',
       disclaimer: sourceTemplate.disclaimer || '',
       userId: user.id,
       sections: {
-        create: sourceTemplate.sections.map(section => ({
+        create: duplicateTemplate.sections.map(section => ({
+          id: section.id,
           title: section.title,
           description: section.description || '',
           order: section.order,
           weight: section.weight || 1,
           fields: {
             create: section.fields.map(field => ({
+              id: field.id,
               question: field.question,
               type: field.type,
               required: field.required,

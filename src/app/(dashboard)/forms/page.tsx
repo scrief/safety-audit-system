@@ -1,13 +1,16 @@
-"use client";
+'use client';
 
 import { FormBuilder } from '@/components/forms/FormBuilder'
 import { useState, useEffect } from 'react';
 import { Template, Tag } from '@/types';
 import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
-import { useSearchParams } from 'next/navigation'; // Import useSearchParams
+import { useSearchParams } from 'next/navigation';
 import { Dialog } from '@/components/ui/Dialog';
+import { Button } from '@/components/ui/Button';
 import { TemplateFilters } from '@/components/forms/TemplateFilters';
+import { TrashIcon, PencilSquareIcon, DocumentDuplicateIcon, PlayIcon } from '@heroicons/react/24/outline';
+import { cloneDeep } from 'lodash';
 
 const emptyTemplate: Template = {
   id: crypto.randomUUID(),
@@ -17,7 +20,7 @@ const emptyTemplate: Template = {
   tags: [],
   createdAt: new Date(),
   updatedAt: new Date(),
-  userId: '', // Will be set when saving
+  userId: '',
 };
 
 export default function FormsPage() {
@@ -29,120 +32,36 @@ export default function FormsPage() {
     },
   });
 
-  const [templates, setTemplates] = useState<Template[]>([]);
-  const [availableTags, setAvailableTags] = useState<Tag[]>([]);
   const [isCreating, setIsCreating] = useState(false);
-  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
-  const [templateToDelete, setTemplateToDelete] = useState<Template | null>(null);
   const [template, setTemplate] = useState<Template>(emptyTemplate);
+  const [templates, setTemplates] = useState<Template[]>([]);
   const [filters, setFilters] = useState({
     searchTerm: '',
-    tags: [] as string[],
+    tags: [] as Tag[],
     dateRange: {
-      start: null as Date | null,
-      end: null as Date | null,
-    },
-    minSections: null as number | null,
-    maxSections: null as number | null,
-    sortBy: 'updated' as 'name' | 'updated' | 'sections',
-    sortOrder: 'desc' as 'asc' | 'desc',
+      start: null,
+      end: null
+    }
   });
-
-  // Use Next.js useSearchParams for better reactivity
-  const searchParams = useSearchParams();
-  
-  useEffect(() => {
-    const action = searchParams.get('action');
-    const templateId = searchParams.get('templateId');
-
-    if (action === 'edit' && templateId) {
-      const templateToEdit = templates.find(t => t.id === templateId);
-      if (templateToEdit) {
-        setTemplate(templateToEdit);
-        setIsCreating(true);
-      }
-    } else if (action === 'create') {
-      setTemplate(emptyTemplate);
-      setIsCreating(true);
-    } else {
-      setIsCreating(false);
-      setTemplate(emptyTemplate);
-    }
-  }, [templates, searchParams]); // Use searchParams instead of window.location.search
+  const [availableTags, setAvailableTags] = useState<Tag[]>([]);
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const [templateToDelete, setTemplateToDelete] = useState<Template | null>(null);
 
   useEffect(() => {
-    fetchTemplates();
-    fetchTags();
-  }, []);
-
-  const handleCancel = () => {
-    setIsCreating(false);
-    setTemplate(emptyTemplate);
-    // Update URL without triggering a page reload
-    window.history.pushState({}, '', '/forms');
-  };
-
-  const handleSave = async (updatedTemplate: Template) => {
-    try {
-      const templateData = {
-        ...updatedTemplate,
-        userId: session?.user?.email,
-      };
-
-      const response = await fetch('/api/templates', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(templateData),
-      });
-
-      const result = await response.json();
-      
-      if (result.success) {
-        setIsCreating(false);
-        await fetchTemplates();
-        // Update URL without triggering a page reload
-        window.history.pushState({}, '', '/forms');
-      } else {
-        console.error('Failed to save template:', result.error);
-      }
-    } catch (error) {
-      console.error('Error saving template:', error);
+    if (session?.user) {
+      fetchTemplates();
+      fetchTags();
     }
-  };
-
-  const startNewTemplate = () => {
-    setTemplate(emptyTemplate);
-    setIsCreating(true);
-    // Update URL without triggering a page reload
-    window.history.pushState({}, '', '/forms?action=create');
-  };
-
-  const editTemplate = (templateId: string) => {
-    const templateToEdit = templates.find(t => t.id === templateId);
-    if (templateToEdit) {
-      setTemplate(templateToEdit);
-      setIsCreating(true);
-      // Update URL without triggering a page reload
-      window.history.pushState({}, '', `/forms?action=edit&templateId=${templateId}`);
-    }
-  };
+  }, [session]);
 
   const fetchTemplates = async () => {
     try {
       const response = await fetch('/api/templates/list');
-      const result = await response.json();
-      
-      if (result.success) {
-        setTemplates(result.data.map((template: Template) => ({
-          ...template,
-          tags: template.tags || [], // Ensure tags is always an array
-          sections: template.sections || [], // Ensure sections is always an array
-        })));
-      } else {
-        console.error('Failed to fetch templates:', result.error);
+      if (!response.ok) {
+        throw new Error('Failed to fetch templates');
       }
+      const data = await response.json();
+      setTemplates(data.data || []);
     } catch (error) {
       console.error('Error fetching templates:', error);
     }
@@ -150,14 +69,99 @@ export default function FormsPage() {
 
   const fetchTags = async () => {
     try {
-      const response = await fetch('/api/tags');
+      const response = await fetch('/api/tags/list');
+      if (!response.ok) {
+        throw new Error('Failed to fetch tags');
+      }
+      const data = await response.json();
+      setAvailableTags(data.data || []);
+    } catch (error) {
+      console.error('Error fetching tags:', error);
+    }
+  };
+
+  const handleSave = async (updatedTemplate: Template) => {
+    try {
+      const response = await fetch('/api/templates', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(updatedTemplate),
+      });
+
       const result = await response.json();
       
       if (result.success) {
-        setAvailableTags(result.data || []);
+        setIsCreating(false);
+        fetchTemplates();
+      } else {
+        throw new Error(result.error || 'Failed to save template');
       }
     } catch (error) {
-      console.error('Error fetching tags:', error);
+      console.error('Error saving template:', error);
+      throw error;
+    }
+  };
+
+  const handleCancel = () => {
+    setIsCreating(false);
+    setTemplate(emptyTemplate);
+  };
+
+  const startNewTemplate = () => {
+    setTemplate(emptyTemplate);
+    setIsCreating(true);
+  };
+
+  const editTemplate = async (templateId: string) => {
+    try {
+      const response = await fetch(`/api/templates/${templateId}`);
+      if (!response.ok) {
+        throw new Error('Failed to fetch template');
+      }
+      const result = await response.json();
+      if (result.success) {
+        router.push(`/forms/${templateId}`);
+      }
+    } catch (error) {
+      console.error('Error fetching template:', error);
+    }
+  };
+
+  const handleDuplicateTemplate = async (templateId: string) => {
+    try {
+      const response = await fetch(`/api/templates/${templateId}/duplicate`, {
+        method: 'POST',
+      });
+      if (!response.ok) {
+        throw new Error('Failed to duplicate template');
+      }
+      const result = await response.json();
+      if (result.success) {
+        fetchTemplates();
+      }
+    } catch (error) {
+      console.error('Error duplicating template:', error);
+    }
+  };
+
+  const handleDeleteTemplate = async (template: Template) => {
+    try {
+      const response = await fetch(`/api/templates/${template.id}`, {
+        method: 'DELETE',
+      });
+      if (!response.ok) {
+        throw new Error('Failed to delete template');
+      }
+      const result = await response.json();
+      if (result.success) {
+        setShowDeleteDialog(false);
+        setTemplateToDelete(null);
+        fetchTemplates();
+      }
+    } catch (error) {
+      console.error('Error deleting template:', error);
     }
   };
 
@@ -165,123 +169,40 @@ export default function FormsPage() {
     try {
       const response = await fetch('/api/tags', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name }),
-      });
-      
-      const result = await response.json();
-      if (result.success) {
-        await fetchTags();
-      }
-    } catch (error) {
-      console.error('Error creating tag:', error);
-    }
-  };
-
-  const handleDuplicateTemplate = async (templateId: string) => {
-    try {
-      console.log('Attempting to duplicate template:', templateId);
-      
-      const response = await fetch(`/api/templates/${templateId}`, {
-        method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
+        body: JSON.stringify({ name }),
       });
-      
-      const contentType = response.headers.get('content-type');
-      let errorMessage = 'Failed to duplicate template';
-      
       if (!response.ok) {
-        if (contentType && contentType.includes('application/json')) {
-          const errorData = await response.json();
-          errorMessage = errorData.error || errorMessage;
-          if (errorData.details) {
-            console.error('Error details:', errorData.details);
-          }
-        } else {
-          const textError = await response.text();
-          errorMessage = textError || errorMessage;
-        }
-        throw new Error(errorMessage);
+        throw new Error('Failed to create tag');
       }
-
       const result = await response.json();
       if (result.success) {
-        console.log('Template duplicated successfully:', result.data.id);
-        await fetchTemplates();
-      } else {
-        console.error('Failed to duplicate template:', result.error);
-        throw new Error(result.error || 'Failed to duplicate template');
+        fetchTags();
+        return result.data;
       }
     } catch (error) {
-      console.error('Error duplicating template:', error);
-      throw error;
-    }
-  };
-
-  const handleDeleteTemplate = async () => {
-    if (!templateToDelete) return;
-
-    try {
-      const response = await fetch(`/api/templates/${templateToDelete.id}`, {
-        method: 'DELETE',
-      });
-
-      const result = await response.json();
-      
-      if (result.success) {
-        await fetchTemplates();
-        setShowDeleteDialog(false);
-        setTemplateToDelete(null);
-      } else {
-        console.error('Failed to delete template:', result.error);
-      }
-    } catch (error) {
-      console.error('Error deleting template:', error);
+      console.error('Error creating tag:', error);
+      return null;
     }
   };
 
   const startNewAudit = (templateId: string) => {
-    router.push(`/audits/new?template=${templateId}`);
+    router.push(`/audits/new?templateId=${templateId}`);
   };
 
-  // Filter and sort templates
   const filteredTemplates = templates.filter(template => {
-    // Text search
-    const matchesSearch = (template.name?.toLowerCase() || '').includes(filters.searchTerm.toLowerCase()) ||
-      (template.description?.toLowerCase() || '').includes(filters.searchTerm.toLowerCase());
-    
-    // Tags filter
+    const matchesSearch = template.name.toLowerCase().includes(filters.searchTerm.toLowerCase()) ||
+      template.description?.toLowerCase().includes(filters.searchTerm.toLowerCase());
+
     const matchesTags = filters.tags.length === 0 ||
-      filters.tags.every(tagId => template.tags?.some(tag => tag.id === tagId));
-    
-    // Date range filter
-    const matchesDateRange = (!filters.dateRange.start || new Date(template.updatedAt!) >= filters.dateRange.start) &&
-      (!filters.dateRange.end || new Date(template.updatedAt!) <= filters.dateRange.end);
-    
-    // Sections count filter
-    const sectionCount = template.sections?.length || 0;
-    const matchesSections = (!filters.minSections || sectionCount >= filters.minSections) &&
-      (!filters.maxSections || sectionCount <= filters.maxSections);
-    
-    return matchesSearch && matchesTags && matchesDateRange && matchesSections;
-  }).sort((a, b) => {
-    let comparison = 0;
-    
-    switch (filters.sortBy) {
-      case 'name':
-        comparison = (a.name || '').localeCompare(b.name || '');
-        break;
-      case 'sections':
-        comparison = (a.sections?.length || 0) - (b.sections?.length || 0);
-        break;
-      case 'updated':
-      default:
-        comparison = new Date(b.updatedAt || 0).getTime() - new Date(a.updatedAt || 0).getTime();
-    }
-    
-    return filters.sortOrder === 'asc' ? comparison : -comparison;
+      filters.tags.every(tag => template.tags?.some(t => t.id === tag.id));
+
+    const matchesDateRange = (!filters.dateRange.start || new Date(template.createdAt) >= new Date(filters.dateRange.start)) &&
+      (!filters.dateRange.end || new Date(template.createdAt) <= new Date(filters.dateRange.end));
+
+    return matchesSearch && matchesTags && matchesDateRange;
   });
 
   return (
@@ -296,12 +217,12 @@ export default function FormsPage() {
         <>
           <div className="flex justify-between items-center mb-8">
             <h1 className="text-3xl font-bold">Audit Templates</h1>
-            <button
+            <Button 
+              variant="primary"
               onClick={startNewTemplate}
-              className="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-md"
             >
               Create Template
-            </button>
+            </Button>
           </div>
 
           <TemplateFilters
@@ -345,34 +266,40 @@ export default function FormsPage() {
                         </div>
                       )}
                     </div>
-                    <div className="space-x-2">
-                      <button
+                    <div className="flex items-center space-x-2">
+                      <Button
+                        variant="secondary"
+                        size="iconSm"
                         onClick={() => editTemplate(template.id)}
-                        className="bg-gray-100 hover:bg-gray-200 text-gray-700 px-4 py-2 rounded-md"
+                        title="Edit Template"
                       >
-                        Edit
-                      </button>
-                      <button
+                        <PencilSquareIcon className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        variant="secondary"
+                        size="iconSm"
                         onClick={() => handleDuplicateTemplate(template.id)}
-                        className="bg-green-100 hover:bg-green-200 text-green-700 px-4 py-2 rounded-md"
+                        title="Duplicate Template"
                       >
-                        Duplicate
-                      </button>
-                      <button
+                        <DocumentDuplicateIcon className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        variant="success"
                         onClick={() => startNewAudit(template.id)}
-                        className="bg-green-500 hover:bg-green-600 text-white px-4 py-2 rounded-md"
                       >
                         Start Audit
-                      </button>
-                      <button
+                      </Button>
+                      <Button
+                        variant="destructive"
+                        size="iconSm"
                         onClick={() => {
                           setTemplateToDelete(template);
                           setShowDeleteDialog(true);
                         }}
-                        className="bg-red-100 hover:bg-red-200 text-red-700 px-4 py-2 rounded-md"
+                        title="Delete Template"
                       >
-                        Delete
-                      </button>
+                        <TrashIcon className="h-4 w-4" />
+                      </Button>
                     </div>
                   </div>
                 </div>
@@ -382,36 +309,35 @@ export default function FormsPage() {
         </>
       )}
 
-      {/* Delete Confirmation Dialog */}
       {showDeleteDialog && templateToDelete && (
         <Dialog
-          isOpen={showDeleteDialog}
+          isOpen={true}
           onClose={() => {
             setShowDeleteDialog(false);
             setTemplateToDelete(null);
           }}
+          title="Delete Template"
         >
-          <div className="p-6">
-            <h2 className="text-xl font-semibold mb-4">Delete Template</h2>
-            <p className="text-gray-600 mb-6">
+          <div className="mt-2">
+            <p className="text-sm text-gray-500">
               Are you sure you want to delete "{templateToDelete.name}"? This action cannot be undone.
             </p>
-            <div className="flex justify-end space-x-4">
-              <button
+            <div className="mt-4 flex justify-end space-x-2">
+              <Button
+                variant="cancel"
                 onClick={() => {
                   setShowDeleteDialog(false);
                   setTemplateToDelete(null);
                 }}
-                className="px-4 py-2 text-gray-600 hover:text-gray-800"
               >
                 Cancel
-              </button>
-              <button
+              </Button>
+              <Button
+                variant="destructive"
                 onClick={handleDeleteTemplate}
-                className="px-4 py-2 bg-red-500 text-white rounded-md hover:bg-red-600"
               >
                 Delete
-              </button>
+              </Button>
             </div>
           </div>
         </Dialog>

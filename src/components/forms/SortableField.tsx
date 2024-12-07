@@ -3,7 +3,7 @@
 import React from 'react';
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { Field } from '@/types';
+import { Field, FieldType } from '@/types';
 import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
 
@@ -78,15 +78,17 @@ export function SortableField({ field, onUpdate, onDelete }: SortableFieldProps)
           <div className="flex items-center space-x-2">
             <select
               value={field.type}
-              onChange={(e) => onUpdate({ type: e.target.value as Field['type'] })}
+              onChange={(e) => onUpdate({ type: e.target.value as FieldType })}
               className="text-sm border-gray-300 rounded-md shadow-sm focus:border-blue-500 focus:ring-blue-500"
             >
-              <option value="text">Text</option>
-              <option value="number">Number</option>
-              <option value="select">Select</option>
-              <option value="checkbox">Checkbox</option>
-              <option value="date">Date</option>
-              <option value="file">File Upload</option>
+              <option value="TEXT">Text</option>
+              <option value="NUMBER">Number</option>
+              <option value="YES_NO">Yes/No</option>
+              <option value="MULTIPLE_CHOICE">Multiple Choice</option>
+              <option value="CHECKBOX">Checkbox</option>
+              <option value="DATE">Date</option>
+              <option value="SLIDER">Slider</option>
+              <option value="INSTRUCTION">Instruction</option>
             </select>
             <div className="flex items-center space-x-2">
               <input
@@ -105,7 +107,7 @@ export function SortableField({ field, onUpdate, onDelete }: SortableFieldProps)
             </Button>
           </div>
         </div>
-        {field.type === 'select' && (
+        {(field.type === 'MULTIPLE_CHOICE' || field.type === 'CHECKBOX') && (
           <div className="mt-2">
             <div className="flex items-center space-x-2">
               <input
@@ -114,6 +116,52 @@ export function SortableField({ field, onUpdate, onDelete }: SortableFieldProps)
                 onChange={(e) => onUpdate({ options: e.target.value.split(',').map(s => s.trim()) })}
                 className="flex-1 text-sm border-gray-300 rounded-md shadow-sm focus:border-blue-500 focus:ring-blue-500"
                 placeholder="Enter options (comma-separated)"
+              />
+            </div>
+          </div>
+        )}
+        {field.type === 'SLIDER' && (
+          <div className="mt-2 grid grid-cols-3 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700">Min</label>
+              <input
+                type="number"
+                value={field.settings?.sliderMin ?? 0}
+                onChange={(e) => onUpdate({
+                  settings: {
+                    ...field.settings,
+                    sliderMin: Number(e.target.value)
+                  }
+                })}
+                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700">Max</label>
+              <input
+                type="number"
+                value={field.settings?.sliderMax ?? 100}
+                onChange={(e) => onUpdate({
+                  settings: {
+                    ...field.settings,
+                    sliderMax: Number(e.target.value)
+                  }
+                })}
+                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700">Step</label>
+              <input
+                type="number"
+                value={field.settings?.sliderStep ?? 1}
+                onChange={(e) => onUpdate({
+                  settings: {
+                    ...field.settings,
+                    sliderStep: Number(e.target.value)
+                  }
+                })}
+                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
               />
             </div>
           </div>

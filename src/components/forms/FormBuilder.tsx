@@ -24,6 +24,7 @@ export function FormBuilder({ template: initialTemplate, onSave, onCancel }: For
   const [templateName, setTemplateName] = useState(initialTemplate?.name || '');
   const [templateDescription, setTemplateDescription] = useState(initialTemplate?.description || '');
   const [error, setError] = useState<string | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -99,48 +100,91 @@ export function FormBuilder({ template: initialTemplate, onSave, onCancel }: For
     );
   };
 
+  const validateTemplate = (): string | null => {
+    // Validate template name and description
+    if (!templateName.trim()) {
+      return 'Template name is required';
+    }
+    if (!templateDescription.trim()) {
+      return 'Template description is required';
+    }
+
+    // Validate sections
+    if (sections.length === 0) {
+      return 'Template must have at least one section';
+    }
+
+    // Validate each section and its fields
+    for (let i = 0; i < sections.length; i++) {
+      const section = sections[i];
+      
+      if (!section.title.trim()) {
+        return `Section ${i + 1} must have a title`;
+      }
+
+      if (section.fields.length === 0) {
+        return `Section "${section.title}" must have at least one field`;
+      }
+
+      for (let j = 0; j < section.fields.length; j++) {
+        const field = section.fields[j];
+        
+        if (!field.question.trim()) {
+          return `Field ${j + 1} in section "${section.title}" must have a question`;
+        }
+
+        if (!field.type) {
+          return `Field "${field.question}" in section "${section.title}" must have a type`;
+        }
+      }
+    }
+
+    return null;
+  };
+
   const handleSave = async () => {
     try {
       setError(null);
-      const name = templateName.trim();
-      const description = templateDescription.trim();
+      setIsSaving(true);
 
-      if (!name) {
-        setError('Template name is required');
-        return;
-      }
-      if (!description) {
-        setError('Template description is required');
+      // Validate the template
+      const validationError = validateTemplate();
+      if (validationError) {
+        setError(validationError);
         return;
       }
 
       const updatedTemplate: Template = {
         ...initialTemplate,
-        name,
-        description,
+        name: templateName.trim(),
+        description: templateDescription.trim(),
         sections: sections.map((section, index) => ({
           ...section,
+          title: section.title.trim(),
           order: index,
           weight: section.weight || 1,
           fields: section.fields.map((field, fieldIndex) => ({
             ...field,
+            question: field.question.trim(),
             order: fieldIndex,
             type: field.type,
             required: Boolean(field.required),
             aiEnabled: Boolean(field.aiEnabled),
-            options: field.options || null,
-            settings: field.settings || null,
-            scoring: field.scoring || null,
+            options: field.options || [],
+            settings: field.settings || {},
+            scoring: field.scoring || {},
           })),
         })),
       };
 
       await onSave(updatedTemplate);
       setUnsavedChanges(false);
-      navigate('/forms', true); // Force navigation after successful save
+      navigate('/forms', true);
     } catch (error) {
       console.error('Error saving template:', error);
       setError(error instanceof Error ? error.message : 'An error occurred while saving');
+    } finally {
+      setIsSaving(false);
     }
   };
 
@@ -152,7 +196,7 @@ export function FormBuilder({ template: initialTemplate, onSave, onCancel }: For
     const hasChanges = sections.some((section, index) => {
       const initialSection = initialTemplate.sections?.[index];
       return (
-        section.name !== initialSection?.name ||
+        section.title !== initialSection?.title ||
         section.description !== initialSection?.description ||
         section.weight !== initialSection?.weight ||
         JSON.stringify(section.fields) !== JSON.stringify(initialSection?.fields)
@@ -169,18 +213,19 @@ export function FormBuilder({ template: initialTemplate, onSave, onCancel }: For
           {templateName ? `Edit Template: ${templateName}` : 'Create New Template'}
         </h1>
         <div className="space-x-4">
-          <button
+          <Button
             onClick={handleCancel}
-            className="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-md"
+            variant="outline"
+            disabled={isSaving}
           >
             Cancel
-          </button>
-          <button
+          </Button>
+          <Button
             onClick={handleSave}
-            className="px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-md"
+            disabled={isSaving}
           >
-            Save Template
-          </button>
+            {isSaving ? 'Saving...' : 'Save Template'}
+          </Button>
         </div>
       </div>
       

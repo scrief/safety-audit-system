@@ -11,8 +11,13 @@ const api = axios.create({
 
 // Response interceptor
 api.interceptors.response.use(
-  (response: AxiosResponse) => response.data,
+  (response: AxiosResponse) => {
+    console.log('API Response Interceptor:', response);
+    // The response.data should already contain success and data fields from our API
+    return response.data;
+  },
   (error: AxiosError) => {
+    console.error('API Error Interceptor:', error);
     if (error.response?.status === 401) {
       // Handle unauthorized access
       window.location.href = '/auth/signin';
@@ -24,44 +29,70 @@ api.interceptors.response.use(
 // Generic API functions
 export async function fetchData<T>(url: string): Promise<ApiResponse<T>> {
   try {
-    const response = await api.get<ApiResponse<T>>(url);
+    console.log('Fetching data from:', url);
+    const response = await api.get(url);
+    console.log('Raw API response:', response);
     return response;
   } catch (error) {
-    return { success: false, error: getErrorMessage(error) };
+    console.error('API Error:', error);
+    return { 
+      success: false, 
+      error: getErrorMessage(error),
+      data: null 
+    };
   }
 }
 
 export async function postData<T>(url: string, data: any): Promise<ApiResponse<T>> {
   try {
-    const response = await api.post<ApiResponse<T>>(url, data);
+    const response = await api.post(url, data);
     return response;
   } catch (error) {
-    return { success: false, error: getErrorMessage(error) };
+    return { 
+      success: false, 
+      error: getErrorMessage(error),
+      data: null 
+    };
   }
 }
 
 export async function putData<T>(url: string, data: any): Promise<ApiResponse<T>> {
   try {
-    const response = await api.put<ApiResponse<T>>(url, data);
+    const response = await api.put(url, data);
     return response;
   } catch (error) {
-    return { success: false, error: getErrorMessage(error) };
+    return { 
+      success: false, 
+      error: getErrorMessage(error),
+      data: null 
+    };
   }
 }
 
 export async function deleteData<T>(url: string): Promise<ApiResponse<T>> {
   try {
-    const response = await api.delete<ApiResponse<T>>(url);
+    const response = await api.delete(url);
     return response;
   } catch (error) {
-    return { success: false, error: getErrorMessage(error) };
+    return { 
+      success: false, 
+      error: getErrorMessage(error),
+      data: null 
+    };
   }
 }
 
 // Error handling
 function getErrorMessage(error: unknown): string {
   if (error instanceof AxiosError) {
-    return error.response?.data?.message || error.message;
+    if (error.response?.data?.message) {
+      return error.response.data.message;
+    } else if (error.response?.status) {
+      return `Server error: ${error.response.status} ${error.response.statusText}`;
+    } else if (error.request) {
+      return 'No response received from server. Please check your connection.';
+    }
+    return error.message;
   }
   return 'An unexpected error occurred';
 }

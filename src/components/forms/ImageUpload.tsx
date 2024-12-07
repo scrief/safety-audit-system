@@ -1,7 +1,6 @@
 // src/components/forms/ImageUpload.tsx
 import React, { useCallback } from 'react';
 import { useDropzone } from 'react-dropzone';
-import { Button } from '@/components/ui/Button';
 
 interface ImageUploadProps {
   value: string[];
@@ -140,35 +139,3 @@ async function compressImage(file: File): Promise<File> {
     };
   });
 }
-
-// src/hooks/useAIRecommendations.ts
-import { useState, useCallback } from 'react';
-import { Field } from '@/types';
-import { openai } from '@/lib/openai';
-
-export function useAIRecommendations() {
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const getRecommendation = useCallback(async (
-    value: string,
-    field: Field
-  ): Promise<string> => {
-    setIsLoading(true);
-    setError(null);
-
-    try {
-      const prompt = `Based on the following hazard or safety observation, provide a 2-3 sentence recommendation that aligns with OSHA regulations and insurance industry best practices. Focus on specific, actionable steps to address the issue.
-
-Observation: ${value}
-
-Key points to address:
-1. Immediate corrective action
-2. Preventive measures
-3. Compliance with safety standards
-
-Please provide a concise, professional response:`;
-
-      const response = await openai.chat.completions.create({
-        messages: [{ role: 'user', content: prompt }],
-        model: 'gpt-4',

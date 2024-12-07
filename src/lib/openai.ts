@@ -1,8 +1,13 @@
 import OpenAI from 'openai';
 import { Field } from '@/types';
 
+if (!process.env.OPENAI_API_KEY) {
+  console.warn('Warning: OPENAI_API_KEY is not set in environment variables');
+}
+
 const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
+  apiKey: process.env.OPENAI_API_KEY || '',
+  dangerouslyAllowBrowser: true // Required for client-side usage
 });
 
 export async function generateSafetyRecommendation(
@@ -10,6 +15,10 @@ export async function generateSafetyRecommendation(
   field: Field,
   industryContext?: string
 ): Promise<string> {
+  if (!process.env.OPENAI_API_KEY) {
+    return 'AI recommendations are not available. Please configure OpenAI API key.';
+  }
+
   try {
     const prompt = `As a safety expert, provide a specific, actionable recommendation for the following safety observation in ${industryContext || 'an industrial'} setting. Focus on OSHA compliance and industry best practices.
 
@@ -35,6 +44,6 @@ Provide a concise, professional recommendation in 2-3 sentences:`;
     return response.choices[0]?.message?.content || 'Unable to generate recommendation';
   } catch (error) {
     console.error('OpenAI API error:', error);
-    throw new Error('Failed to generate safety recommendation');
+    return 'Failed to generate safety recommendation. Please try again later.';
   }
 }
