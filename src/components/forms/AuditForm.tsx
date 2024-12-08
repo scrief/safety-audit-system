@@ -70,7 +70,7 @@ export function AuditForm({ template, initialData, onSave, onComplete }: AuditFo
       [fieldId]: {
         ...prev[fieldId],
         fieldId,
-        value: value?.value ?? value,
+        value: typeof value === 'object' && 'value' in value ? value.value : value, // Ensure value is correctly extracted
         notes: value?.notes || '',
         photos: value?.photos || [],
         aiRecommendation: value?.aiRecommendation || null

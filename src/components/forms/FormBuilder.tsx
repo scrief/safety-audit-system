@@ -11,6 +11,7 @@ import { AddSectionDialog } from './AddSectionDialog';
 import { useNavigationManager } from '@/hooks/useNavigationManager';
 import { toast } from '@/components/ui/use-toast';
 import { AlertCircle } from 'lucide-react';
+import { useSession } from 'next-auth/react';
 
 interface FormBuilderProps {
   template: Template;
@@ -19,6 +20,7 @@ interface FormBuilderProps {
 }
 
 export function FormBuilder({ template: initialTemplate, onSave, onCancel }: FormBuilderProps) {
+  const { data: session } = useSession();
   const { setUnsavedChanges } = useNavigationManager();
   const [sections, setSections] = useState<Section[]>(initialTemplate?.sections || []);
   const [isAddingSections, setIsAddingSections] = useState(false);
@@ -148,6 +150,7 @@ export function FormBuilder({ template: initialTemplate, onSave, onCancel }: For
   const handleSave = async () => {
     try {
       console.log('[FormBuilder] Starting save process...');
+      console.log('Session data:', session); // Log session data
       setError(null);
       setIsSaving(true);
 
@@ -158,46 +161,37 @@ export function FormBuilder({ template: initialTemplate, onSave, onCancel }: For
         throw new Error(validationError);
       }
 
+      // Retrieve userId from session
+      const userId = session?.user?.id;
+      console.log('User ID:', userId); // Log userId
+      if (!userId) {
+        throw new Error('User ID is not available');
+      }
+
       // Create the updated template
       console.log('[FormBuilder] Creating updated template...');
       const updatedTemplate: Template = {
-        id: initialTemplate?.id || crypto.randomUUID(),
-        name: templateName.trim(),
-        description: templateDescription.trim(),
-        createdAt: initialTemplate?.createdAt || new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-        sections: sections.map((section) => ({
+        id: initialTemplate.id,
+        name: templateName,
+        description: templateDescription,
+        userId: userId, // Use userId from session
+        sections: sections.map(section => ({
           id: section.id,
-          title: section.title.trim(),
-          description: section.description?.trim() || '',
-          order: section.order,
-          weight: section.weight || 1,
-          fields: section.fields.map((field) => ({
+          title: section.title,
+          description: section.description,
+          weight: section.weight,
+          fields: section.fields.map(field => ({
             id: field.id,
             type: field.type,
-            question: field.question.trim(),
-            description: field.description?.trim() || '',
-            required: Boolean(field.required),
-            aiEnabled: Boolean(field.aiEnabled),
-            order: field.order,
-            options: field.type === FieldType.MULTIPLE_CHOICE && Array.isArray(field.options)
-              ? field.options.map(opt => ({
-                  id: opt.id,
-                  text: opt.text.trim(),
-                  value: opt.value,
-                  isCorrect: Boolean(opt.isCorrect)
-                }))
-              : {},
-            settings: {
-              allowPhotos: Boolean(field.settings?.allowPhotos),
-              allowNotes: Boolean(field.settings?.allowNotes),
-              maxPhotos: field.settings?.maxPhotos || 5,
-              notesLabel: field.settings?.notesLabel || 'Additional Notes',
-              slider: field.settings?.slider || { min: 0, max: 100, step: 1 }
-            },
-            scoring: field.scoring || {},
-          })),
-        })),
+            question: field.question,
+            description: field.description,
+            required: field.required,
+            aiEnabled: field.aiEnabled,
+            options: Array.isArray(field.options) ? field.options : [],
+            settings: field.settings,
+            scoring: field.scoring
+          }))
+        }))
       };
 
       // Log the template data for debugging
@@ -206,7 +200,7 @@ export function FormBuilder({ template: initialTemplate, onSave, onCancel }: For
       // Call the save function
       console.log('[FormBuilder] Calling onSave function...');
       await onSave(updatedTemplate);
-      
+
       // Success notification
       console.log('[FormBuilder] Save successful');
       toast({

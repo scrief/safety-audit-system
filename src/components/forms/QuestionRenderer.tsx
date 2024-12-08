@@ -194,7 +194,7 @@ export function QuestionRenderer({ field, value, onChange, disabled = false }: Q
           <div className="flex items-center gap-2">
             <Checkbox
               checked={value?.value || false}
-              onCheckedChange={(checked) => handleValueChange(checked)}
+              onChange={(e) => handleValueChange(e.target.checked)}
               disabled={disabled}
             />
             <Label className="text-sm font-medium">
@@ -229,7 +229,7 @@ export function QuestionRenderer({ field, value, onChange, disabled = false }: Q
                 min={sliderSettings.min}
                 max={sliderSettings.max}
                 step={sliderSettings.step}
-                onValueChange={([val]) => handleValueChange(val)}
+                onChange={(e) => handleValueChange(e.target.value)}
                 disabled={disabled}
               />
             </div>

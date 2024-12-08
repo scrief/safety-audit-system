@@ -2,142 +2,58 @@ import { NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '../../auth/[...nextauth]/route';
 import { prisma } from '@/lib/prisma';
+import { z } from 'zod';
 
-function sanitizeField(field: any) {
-  return {
-    question: field.question.trim(),
-    type: field.type,
-    description: field.description?.trim() || '',
-    required: Boolean(field.required),
-    aiEnabled: Boolean(field.aiEnabled),
-    order: Number(field.order) || 0,
-    options: field.type === 'MULTIPLE_CHOICE' && Array.isArray(field.options) 
-      ? field.options.map(opt => ({
-          id: String(opt.id),
-          text: String(opt.text).trim(),
-          value: String(opt.value),
-          isCorrect: Boolean(opt.isCorrect)
-        }))
-      : undefined,
-    settings: {
-      allowPhotos: Boolean(field.settings?.allowPhotos),
-      allowNotes: Boolean(field.settings?.allowNotes),
-      maxPhotos: Number(field.settings?.maxPhotos) || 5,
-      notesLabel: String(field.settings?.notesLabel || 'Additional Notes'),
-      slider: field.settings?.slider ? {
-        min: Number(field.settings.slider.min) || 0,
-        max: Number(field.settings.slider.max) || 100,
-        step: Number(field.settings.slider.step) || 1
-      } : undefined
-    },
-    scoring: field.scoring ? {
-      points: Number(field.scoring.points) || 0,
-      weight: Number(field.scoring.weight) || 1,
-      scoringMethod: field.scoring.scoringMethod || 'binary',
-      customScoring: field.scoring.customScoring || null
-    } : undefined
-  };
-}
+// Zod schemas for validation
+const fieldSchema = z.object({
+  id: z.string().optional(),
+  question: z.string().min(1),
+  type: z.string(),
+  description: z.string().optional(),
+  required: z.boolean(),
+  aiEnabled: z.boolean(),
+  options: z.array(z.object({
+    id: z.string(),
+    text: z.string().min(1),
+    value: z.string(),
+    isCorrect: z.boolean(),
+  })).optional(),
+  settings: z.object({
+    allowPhotos: z.boolean().optional(),
+    allowNotes: z.boolean().optional(),
+    maxPhotos: z.number().optional(),
+    notesLabel: z.string().optional(),
+    slider: z.object({
+      min: z.number(),
+      max: z.number(),
+      step: z.number(),
+    }).optional(),
+  }).optional(),
+  scoring: z.object({
+    points: z.number().optional(),
+    weight: z.number().optional(),
+    scoringMethod: z.string().optional(),
+    customScoring: z.any().nullable(),
+  }).optional(),
+});
 
-function sanitizeSection(section: any) {
-  return {
-    title: section.title.trim(),
-    description: section.description || '',
-    weight: Number(section.weight) || 1,
-    fields: Array.isArray(section.fields) 
-      ? section.fields.map((field: any, index: number) => ({
-          ...sanitizeField(field),
-          order: index
-        }))
-      : []
-  };
-}
+const sectionSchema = z.object({
+  id: z.string().optional(),
+  title: z.string().min(1),
+  description: z.string().optional(),
+  weight: z.number(),
+  fields: z.array(fieldSchema),
+});
 
-export async function GET(
-  request: Request,
-  { params }: { params: { id: string } }
-) {
-  try {
-    console.log('[GET] Starting template fetch...');
+const templateUpdateSchema = z.object({
+  id: z.string().optional(),
+  name: z.string().min(1),
+  description: z.string().min(1),
+  userId: z.string().min(1),
+  sections: z.array(sectionSchema),
+});
 
-    // Get template ID from the URL
-    const url = new URL(request.url);
-    const id = url.pathname.split('/').pop();
-
-    if (!id) {
-      console.log('[GET] Missing template ID');
-      return NextResponse.json({ 
-        success: false, 
-        error: 'Template ID is required' 
-      }, { status: 400 });
-    }
-
-    // Get session and validate user
-    const session = await getServerSession(authOptions);
-    if (!session?.user?.email) {
-      console.log('[GET] No authenticated session');
-      return NextResponse.json({ 
-        success: false, 
-        error: 'Authentication required' 
-      }, { status: 401 });
-    }
-
-    // Get user
-    const user = await prisma.user.findUnique({
-      where: { email: session.user.email }
-    });
-
-    if (!user) {
-      console.log('[GET] User not found');
-      return NextResponse.json({ 
-        success: false, 
-        error: 'User not found' 
-      }, { status: 404 });
-    }
-
-    // Fetch template with all related data
-    const template = await prisma.template.findFirst({
-      where: {
-        id,
-        userId: user.id,
-        isArchived: false
-      },
-      include: {
-        sections: {
-          include: {
-            fields: {
-              orderBy: { order: 'asc' }
-            }
-          },
-          orderBy: { order: 'asc' }
-        }
-      }
-    });
-
-    if (!template) {
-      console.log('[GET] Template not found or unauthorized');
-      return NextResponse.json({ 
-        success: false, 
-        error: 'Template not found or unauthorized access' 
-      }, { status: 404 });
-    }
-
-    console.log('[GET] Template found successfully');
-    return NextResponse.json({ 
-      success: true, 
-      data: template 
-    });
-
-  } catch (error) {
-    console.error('[GET] Unexpected error:', error);
-    return NextResponse.json({ 
-      success: false, 
-      error: 'An unexpected error occurred',
-      details: process.env.NODE_ENV === 'development' ? String(error) : undefined
-    }, { status: 500 });
-  }
-}
-
+// PUT handler
 export async function PUT(
   request: Request,
   { params }: { params: { id: string } }
@@ -169,64 +85,37 @@ export async function PUT(
 
     const payload = await request.json();
     console.log('[PUT] Received payload:', JSON.stringify(payload, null, 2));
+    console.log('[PUT] Incoming payload:', payload);
 
-    const { name, description, sections } = payload;
-
-    if (!name || !sections) {
-      console.log('[PUT] Missing required fields');
-      return NextResponse.json({ 
-        success: false, 
-        error: 'Missing required fields' 
-      }, { status: 400 });
+    // Validate payload with Zod
+    let validatedPayload;
+    try {
+      validatedPayload = templateUpdateSchema.parse(payload);
+    } catch (validationError) {
+      console.error('[PUT] Validation error:', validationError);
+      return NextResponse.json(
+        { success: false, error: 'Validation failed', details: validationError },
+        { status: 400 }
+      );
     }
 
-    // Sanitize sections and fields
-    console.log('[PUT] Sanitizing sections and fields...');
-    const sanitizedSections = sections.map((section: any) => ({
-      ...section,
-      title: section.title.trim(),
-      description: section.description?.trim() || '',
-      fields: section.fields.map((field: any) => ({
-        ...field,
-        question: field.question.trim(),
-        description: field.description?.trim() || '',
-        required: Boolean(field.required),
-        aiEnabled: Boolean(field.aiEnabled),
-        options: field.type === 'MULTIPLE_CHOICE' && Array.isArray(field.options)
-          ? field.options.map((opt: any) => ({
-              id: opt.id,
-              text: String(opt.text).trim(),
-              value: opt.value,
-              isCorrect: Boolean(opt.isCorrect)
-            }))
-          : {},
-        settings: field.settings || {},
-        scoring: field.scoring || {}
-      }))
-    }));
+    const { id: templateId, name, description, userId, sections } = validatedPayload;
 
-    console.log('[PUT] Starting database transaction...');
+    console.log('[PUT] Sanitized sections:', JSON.stringify(sections, null, 2));
+
     // Update template with transaction
     try {
-      const updatedTemplate = await prisma.$transaction(async (tx) => {
-        // Delete existing sections
-        await tx.section.deleteMany({
-          where: { templateId: id }
-        });
-
-        // Update template with new data
-        return await tx.template.update({
-          where: {
-            id,
-            userId: user.id,
-            isArchived: false
-          },
-          data: {
-            name: name.trim(),
-            description: description?.trim() || '',
-            updatedAt: new Date(),
-            sections: {
-              create: sanitizedSections.map(section => ({
+      const updatedTemplate = await prisma.template.update({
+        where: { id },
+        data: {
+          name: name.trim(),
+          description: description.trim(),
+          updatedAt: new Date(),
+          userId: userId,
+          sections: {
+            upsert: sections.map(section => ({
+              where: { id: section.id || '' }, // Update existing or create new
+              create: {
                 title: section.title,
                 description: section.description || '',
                 order: section.order,
@@ -244,20 +133,53 @@ export async function PUT(
                     scoring: field.scoring || {}
                   }))
                 }
-              }))
-            }
-          },
-          include: {
-            sections: {
-              include: {
-                fields: {
-                  orderBy: { order: 'asc' }
-                }
               },
-              orderBy: { order: 'asc' }
-            }
+              update: {
+                title: section.title,
+                description: section.description || '',
+                order: section.order,
+                weight: section.weight,
+                fields: {
+                  upsert: section.fields.map(field => ({
+                    where: { id: field.id || '' },
+                    create: {
+                      question: field.question,
+                      type: field.type,
+                      description: field.description || '',
+                      required: field.required,
+                      aiEnabled: field.aiEnabled,
+                      order: field.order,
+                      options: field.options || {},
+                      settings: field.settings || {},
+                      scoring: field.scoring || {}
+                    },
+                    update: {
+                      question: field.question,
+                      type: field.type,
+                      description: field.description || '',
+                      required: field.required,
+                      aiEnabled: field.aiEnabled,
+                      order: field.order,
+                      options: field.options || {},
+                      settings: field.settings || {},
+                      scoring: field.scoring || {}
+                    }
+                  }))
+                }
+              }
+            }))
           }
-        });
+        },
+        include: {
+          sections: {
+            include: {
+              fields: {
+                orderBy: { order: 'asc' }
+              }
+            },
+            orderBy: { order: 'asc' }
+          }
+        }
       });
 
       console.log('[PUT] Template updated successfully');
@@ -285,80 +207,50 @@ export async function PUT(
   }
 }
 
-export async function DELETE(
-  request: Request
+// GET handler
+export async function GET(
+  request: Request,
+  context: { params: { id: string } }
 ) {
   try {
-    console.log('[DELETE] Starting template deletion...');
-
-    // Get template ID from the URL
-    const url = new URL(request.url);
-    const id = url.pathname.split('/').pop();
-
-    if (!id) {
-      console.log('[DELETE] Missing template ID');
-      return NextResponse.json({ 
-        success: false, 
-        error: 'Template ID is required' 
-      }, { status: 400 });
-    }
-
-    // Get session and validate user
+    console.log('[GET] Fetching template...');
+    const id = await Promise.resolve(context.params.id); // Await params.id
     const session = await getServerSession(authOptions);
-    if (!session?.user?.email) {
-      console.log('[DELETE] No authenticated session');
+    
+    if (!session?.user) {
+      console.log('[GET] No authenticated user found');
       return NextResponse.json({ 
         success: false, 
-        error: 'Authentication required' 
+        error: 'Not authenticated' 
       }, { status: 401 });
     }
 
-    // Get user
-    const user = await prisma.user.findUnique({
-      where: { email: session.user.email }
-    });
-
-    if (!user) {
-      console.log('[DELETE] User not found');
-      return NextResponse.json({ 
-        success: false, 
-        error: 'User not found' 
-      }, { status: 404 });
-    }
-
-    // Soft delete the template
-    const deletedTemplate = await prisma.template.update({
-      where: {
-        id,
-        userId: user.id,
-        isArchived: false
-      },
-      data: {
-        isArchived: true,
-        updatedAt: new Date()
+    const template = await prisma.template.findUnique({
+      where: { id },
+      include: {
+        sections: {
+          include: {
+            fields: true
+          }
+        }
       }
     });
 
-    if (!deletedTemplate) {
-      console.log('[DELETE] Template not found or unauthorized');
+    if (!template) {
+      console.log('[GET] Template not found');
       return NextResponse.json({ 
         success: false, 
-        error: 'Template not found or unauthorized access' 
+        error: 'Template not found' 
       }, { status: 404 });
     }
 
-    console.log('[DELETE] Template archived successfully');
-    return NextResponse.json({ 
-      success: true,
-      message: 'Template archived successfully'
-    });
-
+    return NextResponse.json({ success: true, data: template });
   } catch (error) {
-    console.error('[DELETE] Unexpected error:', error);
+    console.error('[GET] Unexpected error:', error);
     return NextResponse.json({ 
       success: false, 
       error: 'An unexpected error occurred',
-      details: process.env.NODE_ENV === 'development' ? String(error) : undefined
+      details: process.env.NODE_ENV === 'development' ? String(error) : null
     }, { status: 500 });
   }
 }
