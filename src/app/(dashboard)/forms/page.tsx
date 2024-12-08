@@ -1,16 +1,14 @@
 'use client';
 
-import { FormBuilder } from '@/components/forms/FormBuilder'
 import { useState, useEffect } from 'react';
 import { Template, Tag } from '@/types';
 import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
-import { useSearchParams } from 'next/navigation';
-import { Dialog } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
+import { FormBuilder } from '@/components/forms/FormBuilder';
 import { TemplateFilters } from '@/components/forms/TemplateFilters';
-import { TrashIcon, PencilSquareIcon, DocumentDuplicateIcon, PlayIcon } from '@heroicons/react/24/outline';
-import { cloneDeep } from 'lodash';
+import { Pencil, Copy, Trash, Play } from 'lucide-react';
 
 const emptyTemplate: Template = {
   id: crypto.randomUUID(),
@@ -46,6 +44,8 @@ export default function FormsPage() {
   const [availableTags, setAvailableTags] = useState<Tag[]>([]);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [templateToDelete, setTemplateToDelete] = useState<Template | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (session?.user) {
@@ -56,14 +56,22 @@ export default function FormsPage() {
 
   const fetchTemplates = async () => {
     try {
+      setLoading(true);
       const response = await fetch('/api/templates/list');
       if (!response.ok) {
         throw new Error('Failed to fetch templates');
       }
       const data = await response.json();
-      setTemplates(data.data || []);
+      if (data.success) {
+        setTemplates(data.data || []);
+      } else {
+        throw new Error(data.error || 'Failed to fetch templates');
+      }
     } catch (error) {
       console.error('Error fetching templates:', error);
+      setError(error instanceof Error ? error.message : 'Failed to fetch templates');
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -115,34 +123,32 @@ export default function FormsPage() {
   };
 
   const editTemplate = async (templateId: string) => {
-    try {
-      const response = await fetch(`/api/templates/${templateId}`);
-      if (!response.ok) {
-        throw new Error('Failed to fetch template');
-      }
-      const result = await response.json();
-      if (result.success) {
-        router.push(`/forms/${templateId}`);
-      }
-    } catch (error) {
-      console.error('Error fetching template:', error);
-    }
+    router.push(`/forms/${templateId}`);
   };
 
   const handleDuplicateTemplate = async (templateId: string) => {
     try {
       const response = await fetch(`/api/templates/${templateId}/duplicate`, {
         method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
       });
+
       if (!response.ok) {
-        throw new Error('Failed to duplicate template');
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to duplicate template');
       }
+
       const result = await response.json();
       if (result.success) {
-        fetchTemplates();
+        await fetchTemplates();
+      } else {
+        throw new Error(result.error || 'Failed to duplicate template');
       }
     } catch (error) {
       console.error('Error duplicating template:', error);
+      setError(error instanceof Error ? error.message : 'Failed to duplicate template');
     }
   };
 
@@ -151,40 +157,22 @@ export default function FormsPage() {
       const response = await fetch(`/api/templates/${template.id}`, {
         method: 'DELETE',
       });
+
       if (!response.ok) {
         throw new Error('Failed to delete template');
       }
+
       const result = await response.json();
       if (result.success) {
         setShowDeleteDialog(false);
         setTemplateToDelete(null);
-        fetchTemplates();
+        await fetchTemplates();
+      } else {
+        throw new Error(result.error || 'Failed to delete template');
       }
     } catch (error) {
       console.error('Error deleting template:', error);
-    }
-  };
-
-  const handleCreateTag = async (name: string) => {
-    try {
-      const response = await fetch('/api/tags', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ name }),
-      });
-      if (!response.ok) {
-        throw new Error('Failed to create tag');
-      }
-      const result = await response.json();
-      if (result.success) {
-        fetchTags();
-        return result.data;
-      }
-    } catch (error) {
-      console.error('Error creating tag:', error);
-      return null;
+      setError(error instanceof Error ? error.message : 'Failed to delete template');
     }
   };
 
@@ -205,8 +193,22 @@ export default function FormsPage() {
     return matchesSearch && matchesTags && matchesDateRange;
   });
 
+  if (status === 'loading' || loading) {
+    return (
+      <div className="flex justify-center items-center h-full">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900"></div>
+      </div>
+    );
+  }
+
   return (
     <div className="container mx-auto px-4 py-8">
+      {error && (
+        <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-md text-red-700">
+          {error}
+        </div>
+      )}
+
       {isCreating ? (
         <FormBuilder 
           template={template} 
@@ -217,10 +219,7 @@ export default function FormsPage() {
         <>
           <div className="flex justify-between items-center mb-8">
             <h1 className="text-3xl font-bold">Audit Templates</h1>
-            <Button 
-              variant="primary"
-              onClick={startNewTemplate}
-            >
+            <Button onClick={startNewTemplate}>
               Create Template
             </Button>
           </div>
@@ -229,7 +228,6 @@ export default function FormsPage() {
             filters={filters}
             onFilterChange={setFilters}
             availableTags={availableTags}
-            onCreateTag={handleCreateTag}
           />
 
           <div className="grid gap-6 mt-6">
@@ -244,7 +242,7 @@ export default function FormsPage() {
             ) : (
               filteredTemplates.map((template) => (
                 <div key={template.id} className="bg-white rounded-lg shadow p-6">
-                  <div className="flex justify-between items-start mb-4">
+                  <div className="flex justify-between items-start">
                     <div>
                       <h2 className="text-xl font-semibold">{template.name}</h2>
                       <p className="text-gray-600 mt-1">{template.description}</p>
@@ -268,37 +266,41 @@ export default function FormsPage() {
                     </div>
                     <div className="flex items-center space-x-2">
                       <Button
-                        variant="secondary"
-                        size="iconSm"
+                        variant="outline"
+                        size="sm"
                         onClick={() => editTemplate(template.id)}
-                        title="Edit Template"
+                        className="flex items-center gap-2"
                       >
-                        <PencilSquareIcon className="h-4 w-4" />
+                        <Pencil className="h-4 w-4" />
+                        Edit
                       </Button>
                       <Button
-                        variant="secondary"
-                        size="iconSm"
+                        variant="outline"
+                        size="sm"
                         onClick={() => handleDuplicateTemplate(template.id)}
-                        title="Duplicate Template"
+                        className="flex items-center gap-2"
                       >
-                        <DocumentDuplicateIcon className="h-4 w-4" />
+                        <Copy className="h-4 w-4" />
+                        Duplicate
                       </Button>
                       <Button
-                        variant="success"
                         onClick={() => startNewAudit(template.id)}
+                        className="flex items-center gap-2"
                       >
+                        <Play className="h-4 w-4" />
                         Start Audit
                       </Button>
                       <Button
                         variant="destructive"
-                        size="iconSm"
+                        size="sm"
                         onClick={() => {
                           setTemplateToDelete(template);
                           setShowDeleteDialog(true);
                         }}
-                        title="Delete Template"
+                        className="flex items-center gap-2"
                       >
-                        <TrashIcon className="h-4 w-4" />
+                        <Trash className="h-4 w-4" />
+                        Delete
                       </Button>
                     </div>
                   </div>
@@ -309,39 +311,40 @@ export default function FormsPage() {
         </>
       )}
 
-      {showDeleteDialog && templateToDelete && (
-        <Dialog
-          isOpen={true}
-          onClose={() => {
-            setShowDeleteDialog(false);
-            setTemplateToDelete(null);
-          }}
-          title="Delete Template"
-        >
+      <Dialog open={showDeleteDialog} onOpenChange={(open) => {
+        if (!open) {
+          setShowDeleteDialog(false);
+          setTemplateToDelete(null);
+        }
+      }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete Template</DialogTitle>
+          </DialogHeader>
           <div className="mt-2">
             <p className="text-sm text-gray-500">
-              Are you sure you want to delete "{templateToDelete.name}"? This action cannot be undone.
+              Are you sure you want to delete "{templateToDelete?.name}"? This action cannot be undone.
             </p>
-            <div className="mt-4 flex justify-end space-x-2">
-              <Button
-                variant="cancel"
-                onClick={() => {
-                  setShowDeleteDialog(false);
-                  setTemplateToDelete(null);
-                }}
-              >
-                Cancel
-              </Button>
-              <Button
-                variant="destructive"
-                onClick={handleDeleteTemplate}
-              >
-                Delete
-              </Button>
-            </div>
           </div>
-        </Dialog>
-      )}
+          <div className="mt-4 flex justify-end space-x-2">
+            <Button
+              variant="outline"
+              onClick={() => {
+                setShowDeleteDialog(false);
+                setTemplateToDelete(null);
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={() => templateToDelete && handleDeleteTemplate(templateToDelete)}
+            >
+              Delete
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

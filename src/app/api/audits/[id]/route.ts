@@ -2,19 +2,11 @@ import { auth } from '@/auth';
 import { prisma } from '@/lib/prisma';
 import { NextRequest, NextResponse } from 'next/server';
 
-function jsonResponse(data: any, status = 200) {
-  return new Response(JSON.stringify(data), {
-    status,
-    headers: { 'Content-Type': 'application/json' }
-  });
-}
-
 export async function GET(
   request: NextRequest,
   { params }: { params: { id: string } }
 ) {
   try {
-    // Get the ID from the URL instead of params
     const url = new URL(request.url);
     const id = url.pathname.split('/').pop();
 
@@ -25,7 +17,6 @@ export async function GET(
       }, { status: 400 });
     }
 
-    // Authentication
     const session = await auth(request);
     if (!session?.user?.email) {
       return NextResponse.json({ 
@@ -45,8 +36,6 @@ export async function GET(
       }, { status: 404 });
     }
 
-    // Get the audit with all its related data
-    console.log(`[GET Audit] Searching for audit with ID: ${id} for user: ${user.id}`);
     const audit = await prisma.audit.findFirst({
       where: {
         id,
@@ -85,8 +74,6 @@ export async function GET(
       }, { status: 404 });
     }
 
-    console.log(`[GET Audit] Successfully found audit: ${audit.id}`);
-
     return NextResponse.json({ 
       success: true, 
       data: audit 
@@ -97,7 +84,7 @@ export async function GET(
     return NextResponse.json({ 
       success: false, 
       error: 'An unexpected error occurred',
-      details: process.env.NODE_ENV === 'development' ? error instanceof Error ? error.message : String(error) : undefined
+      details: process.env.NODE_ENV === 'development' ? (error as Error).message : undefined
     }, { status: 500 });
   }
 }
@@ -106,7 +93,6 @@ export async function PUT(
   request: NextRequest,
 ) {
   try {
-    // Get the ID from the URL
     const url = new URL(request.url);
     const id = url.pathname.split('/').pop();
 
@@ -136,14 +122,16 @@ export async function PUT(
       }, { status: 404 });
     }
 
-    // Get the update data
     const updates = await request.json();
+    console.log('Received update data:', updates);
 
-    // Check if the audit exists and belongs to the user
     const audit = await prisma.audit.findFirst({
       where: {
         id,
         auditorId: user.id
+      },
+      include: {
+        responses: true
       }
     });
 
@@ -154,15 +142,26 @@ export async function PUT(
       }, { status: 404 });
     }
 
-    // Update the audit
-    const updatedAudit = await prisma.audit.update({
-      where: { id },
-      data: {
-        status: updates.status,
-        scoring: updates.scoring,
-        completedAt: updates.status === 'COMPLETED' ? new Date() : null,
-        responses: {
-          upsert: updates.responses?.map((response: any) => ({
+    // Update using transaction for data consistency
+    const updatedAudit = await prisma.$transaction(async (prisma) => {
+      // Handle existing responses
+      if (updates.responses) {
+        // Delete existing responses that aren't in the update
+        const updatedFieldIds = updates.responses.map(r => r.fieldId);
+        await prisma.response.deleteMany({
+          where: {
+            auditId: id,
+            NOT: {
+              fieldId: {
+                in: updatedFieldIds
+              }
+            }
+          }
+        });
+
+        // Update or create responses
+        for (const response of updates.responses) {
+          await prisma.response.upsert({
             where: {
               auditId_fieldId: {
                 auditId: id,
@@ -170,41 +169,52 @@ export async function PUT(
               }
             },
             create: {
+              auditId: id,
               fieldId: response.fieldId,
-              value: response.value,
-              notes: response.notes,
+              value: response.value?.toString() || '',
+              notes: response.notes || '',
               photos: response.photos || [],
-              aiRecommendation: response.aiRecommendation
+              aiRecommendation: response.aiRecommendation || null
             },
             update: {
-              value: response.value,
-              notes: response.notes,
+              value: response.value?.toString() || '',
+              notes: response.notes || '',
               photos: response.photos || [],
-              aiRecommendation: response.aiRecommendation
+              aiRecommendation: response.aiRecommendation || null
             }
-          })) || []
-        }
-      },
-      include: {
-        template: {
-          include: {
-            sections: {
-              include: {
-                fields: true
-              },
-              orderBy: {
-                order: 'asc'
-              }
-            }
-          }
-        },
-        client: true,
-        responses: {
-          include: {
-            field: true
-          }
+          });
         }
       }
+
+      // Update the audit
+      return prisma.audit.update({
+        where: { id },
+        data: {
+          status: updates.status,
+          scoring: updates.scoring,
+          completedAt: updates.status === 'COMPLETED' ? new Date() : null
+        },
+        include: {
+          template: {
+            include: {
+              sections: {
+                include: {
+                  fields: true
+                },
+                orderBy: {
+                  order: 'asc'
+                }
+              }
+            }
+          },
+          client: true,
+          responses: {
+            include: {
+              field: true
+            }
+          }
+        }
+      });
     });
 
     return NextResponse.json({ 
@@ -217,7 +227,7 @@ export async function PUT(
     return NextResponse.json({ 
       success: false, 
       error: 'An unexpected error occurred',
-      details: process.env.NODE_ENV === 'development' ? error instanceof Error ? error.message : String(error) : undefined
+      details: process.env.NODE_ENV === 'development' ? (error as Error).message : undefined
     }, { status: 500 });
   }
 }
@@ -227,63 +237,54 @@ export async function DELETE(
   { params }: { params: { id: string } }
 ) {
   try {
-    // 1. Authentication
     const session = await auth(request);
     if (!session?.user?.email) {
-      return jsonResponse({ 
+      return NextResponse.json({ 
         success: false, 
         error: 'Authentication required' 
-      }, 401);
+      }, { status: 401 });
     }
 
-    // 2. Get user
     const user = await prisma.user.findUnique({
       where: { email: session.user.email }
     });
 
     if (!user) {
-      return jsonResponse({ 
+      return NextResponse.json({ 
         success: false, 
         error: 'User not found' 
-      }, 404);
+      }, { status: 404 });
     }
 
-    // 3. Find the audit
-    const audit = await prisma.audit.findUnique({
-      where: { id: params.id }
+    const audit = await prisma.audit.findFirst({
+      where: {
+        id: params.id,
+        auditorId: user.id
+      }
     });
 
     if (!audit) {
-      return jsonResponse({ 
+      return NextResponse.json({ 
         success: false, 
-        error: 'Audit not found' 
-      }, 404);
+        error: 'Audit not found or you don\'t have access to it' 
+      }, { status: 404 });
     }
 
-    // 4. Check ownership
-    if (audit.auditorId !== user.id) {
-      return jsonResponse({ 
-        success: false, 
-        error: 'Not authorized to delete this audit' 
-      }, 403);
-    }
-
-    // 5. Delete the audit
     await prisma.audit.delete({
       where: { id: params.id }
     });
 
-    return jsonResponse({ 
+    return NextResponse.json({ 
       success: true,
       message: 'Audit deleted successfully'
     });
 
   } catch (error) {
     console.error('Error deleting audit:', error);
-    return jsonResponse({ 
-      success: false,
-      error: 'Internal server error',
-      message: process.env.NODE_ENV === 'development' ? (error as Error).message : undefined
-    }, 500);
+    return NextResponse.json({ 
+      success: false, 
+      error: 'An unexpected error occurred',
+      details: process.env.NODE_ENV === 'development' ? (error as Error).message : undefined
+    }, { status: 500 });
   }
 }

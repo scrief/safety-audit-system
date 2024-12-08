@@ -1,11 +1,33 @@
 import { auth } from '@/auth';
 import { prisma } from '@/lib/prisma';
+import { NextResponse } from 'next/server';
 
 function jsonResponse(data: any, status = 200) {
-  return new Response(JSON.stringify(data), {
-    status,
-    headers: { 'Content-Type': 'application/json' }
-  });
+  try {
+    console.log('Creating JSON response:', { status, data });
+    const json = JSON.stringify(data);
+    console.log('Stringified JSON:', json);
+    const response = new NextResponse(json, {
+      status,
+      headers: { 
+        'Content-Type': 'application/json',
+        'Cache-Control': 'no-store'
+      }
+    });
+    console.log('Created response object:', response);
+    return response;
+  } catch (error) {
+    console.error('Error in jsonResponse:', error);
+    const fallbackResponse = JSON.stringify({
+      success: false,
+      error: 'Error creating response',
+      details: error instanceof Error ? error.message : 'Unknown error'
+    });
+    return new NextResponse(fallbackResponse, {
+      status: 500,
+      headers: { 'Content-Type': 'application/json' }
+    });
+  }
 }
 
 interface CreateAuditPayload {
@@ -14,104 +36,170 @@ interface CreateAuditPayload {
 }
 
 export async function POST(request: Request) {
+  console.log('Starting POST /api/audits handler');
   try {
     // 1. Authentication
+    console.log('Checking authentication...');
     const session = await auth(request);
     if (!session?.user?.email) {
-      return jsonResponse({ error: 'Authentication required' }, 401);
+      console.log('No authenticated user found');
+      return jsonResponse({ 
+        success: false,
+        error: 'Authentication required' 
+      }, 401);
     }
 
     // 2. Get user
+    console.log('Getting user details for:', session.user.email);
     const user = await prisma.user.findUnique({
       where: { email: session.user.email }
     });
 
     if (!user) {
-      return jsonResponse({ error: 'User not found' }, 404);
+      console.log('User not found in database');
+      return jsonResponse({ 
+        success: false,
+        error: 'User not found' 
+      }, 404);
     }
 
-    // 3. Parse and validate request body
-    const rawBody = await request.text();
+    // 3. Parse request body
+    console.log('Parsing request body...');
     let body: CreateAuditPayload;
-    
     try {
+      const rawBody = await request.text();
+      console.log('Raw request body:', rawBody);
       body = JSON.parse(rawBody);
-      
-      if (!body.templateId || !body.clientId) {
-        return jsonResponse({ 
-          error: 'Invalid request',
-          details: 'templateId and clientId are required'
-        }, 400);
-      }
+      console.log('Parsed request body:', body);
     } catch (error) {
+      console.error('Error parsing request body:', error);
       return jsonResponse({ 
-        error: 'Invalid JSON',
-        details: 'Failed to parse request body'
+        success: false,
+        error: 'Invalid request body',
+        details: error instanceof Error ? error.message : 'Failed to parse request body'
       }, 400);
     }
 
-    // 4. Verify template and client exist
-    const [template, client] = await Promise.all([
-      prisma.template.findUnique({
-        where: { id: body.templateId },
-        include: { sections: true }
-      }),
-      prisma.client.findUnique({
-        where: { id: body.clientId }
-      })
-    ]);
-
-    if (!template) {
-      return jsonResponse({ error: 'Template not found' }, 404);
+    if (!body.templateId || !body.clientId) {
+      console.log('Missing required fields');
+      return jsonResponse({ 
+        success: false,
+        error: 'Missing required fields',
+        details: 'templateId and clientId are required'
+      }, 400);
     }
 
-    if (!client) {
-      return jsonResponse({ error: 'Client not found' }, 404);
-    }
-
-    // 5. Create the audit
-    const audit = await prisma.audit.create({
-      data: {
-        templateId: body.templateId,
-        clientId: body.clientId,
-        auditorId: user.id,
-        status: 'DRAFT',
-        scoring: {
-          total: 0,
-          sections: template.sections.map(section => ({
-            sectionId: section.id,
-            score: 0,
-            maxScore: 0,
-            completedFields: 0,
-            totalFields: 0
-          }))
-        }
-      },
+    // 4. Get template
+    console.log('Fetching template:', body.templateId);
+    const template = await prisma.template.findUnique({
+      where: { id: body.templateId },
       include: {
-        template: {
+        sections: {
+          orderBy: { order: 'asc' },
           include: {
-            sections: {
-              include: {
-                fields: true
-              }
+            fields: {
+              orderBy: { order: 'asc' }
             }
           }
-        },
-        client: true
+        }
       }
     });
 
-    return jsonResponse({ data: audit }, 201);
+    if (!template) {
+      console.log('Template not found');
+      return jsonResponse({ 
+        success: false,
+        error: 'Template not found' 
+      }, 404);
+    }
+
+    // 5. Get client
+    console.log('Fetching client:', body.clientId);
+    const client = await prisma.client.findUnique({
+      where: { id: body.clientId }
+    });
+
+    if (!client) {
+      console.log('Client not found');
+      return jsonResponse({ 
+        success: false,
+        error: 'Client not found' 
+      }, 404);
+    }
+
+    // 6. Create responses array
+    console.log('Creating field responses...');
+    const fieldResponses = template.sections.flatMap(section =>
+      section.fields.map(field => ({
+        field: { connect: { id: field.id } },
+        value: '',
+        photos: [],
+        notes: '',
+        aiRecommendation: null
+      }))
+    );
+
+    // 7. Create audit
+    console.log('Creating audit...');
+    try {
+      const audit = await prisma.audit.create({
+        data: {
+          client: { connect: { id: client.id } },
+          template: { connect: { id: template.id } },
+          auditor: { connect: { id: user.id } },
+          status: 'DRAFT',
+          responses: {
+            create: fieldResponses
+          },
+          scoring: {
+            total: 0,
+            sections: template.sections.map(section => ({
+              sectionId: section.id,
+              score: 0,
+              maxScore: 0,
+              completedFields: 0,
+              totalFields: section.fields.length
+            }))
+          }
+        },
+        include: {
+          template: true,
+          client: true,
+          responses: {
+            include: {
+              field: true
+            }
+          }
+        }
+      });
+
+      console.log('Audit created successfully:', audit.id);
+      return jsonResponse({ 
+        success: true,
+        data: audit 
+      }, 201);
+
+    } catch (prismaError) {
+      console.error('Prisma error creating audit:', prismaError);
+      return jsonResponse({ 
+        success: false,
+        error: 'Database error',
+        details: prismaError instanceof Error ? prismaError.message : 'Failed to create audit'
+      }, 500);
+    }
 
   } catch (error) {
-    console.error('Error creating audit:', error);
+    console.error('Unhandled error in POST handler:', error);
     return jsonResponse({ 
+      success: false,
       error: 'Internal server error',
-      message: process.env.NODE_ENV === 'development' ? (error as Error).message : undefined
+      details: error instanceof Error ? error.message : 'An unexpected error occurred',
+      stack: process.env.NODE_ENV === 'development' ? (error instanceof Error ? error.stack : undefined) : undefined
     }, 500);
   }
 }
 
+// The GET handler remains the same...
 export async function GET(request: Request) {
   try {
     const session = await auth(request);
@@ -137,17 +225,27 @@ export async function GET(request: Request) {
       where: {
         auditorId: user.id
       },
+      orderBy: {
+        createdAt: 'desc'
+      },
       include: {
         template: {
           select: {
             id: true,
-            name: true
+            name: true,
+            sections: {
+              include: {
+                fields: true
+              }
+            }
           }
         },
-        client: true
-      },
-      orderBy: {
-        createdAt: 'desc'
+        client: true,
+        responses: {
+          include: {
+            field: true
+          }
+        }
       }
     });
 
@@ -157,11 +255,11 @@ export async function GET(request: Request) {
     });
 
   } catch (error) {
-    console.error('Error fetching audits:', error);
+    console.error('Error in GET handler:', error);
     return jsonResponse({ 
       success: false,
       error: 'Internal server error',
-      message: process.env.NODE_ENV === 'development' ? (error as Error).message : undefined
+      details: error instanceof Error ? error.message : 'An unexpected error occurred'
     }, 500);
   }
 }

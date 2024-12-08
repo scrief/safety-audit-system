@@ -1,10 +1,12 @@
 export enum FieldType {
   TEXT = 'TEXT',
+  NUMBER = 'NUMBER',
+  YES_NO = 'YES_NO',
   MULTIPLE_CHOICE = 'MULTIPLE_CHOICE',
   CHECKBOX = 'CHECKBOX',
-  AI_RECOMMENDATION = 'AI_RECOMMENDATION',
-  PHOTO = 'PHOTO',
-  SIGNATURE = 'SIGNATURE'
+  DATE = 'DATE',
+  SLIDER = 'SLIDER',
+  INSTRUCTION = 'INSTRUCTION'
 }
 
 export interface FieldOption {
@@ -56,6 +58,11 @@ export interface Field {
     allowPhotos?: boolean;
     photoRequired?: boolean;
     notesRequired?: boolean;
+    slider?: {
+      min: number;
+      max: number;
+      step: number;
+    };
   } | null;
   scoring: FieldScoring | null;
 }

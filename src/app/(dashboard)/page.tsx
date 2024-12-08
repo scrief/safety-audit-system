@@ -45,7 +45,7 @@ export default function DashboardPage() {
       const formsData = formsText ? JSON.parse(formsText) : null;
 
       console.log('Fetching audits...');
-      const auditsRes = await fetch('/api/audits/list?limit=5');
+      const auditsRes = await fetch('/api/audits');  // Changed from /api/audits/list
       console.log('Audits response status:', auditsRes.status);
       const auditsText = await auditsRes.text();
       console.log('Audits response text:', auditsText);
@@ -60,7 +60,8 @@ export default function DashboardPage() {
       }
 
       setRecentForms(formsData.data || []);
-      setRecentAudits(auditsData.data || []);
+      // Take only the 5 most recent audits
+      setRecentAudits((auditsData.data || []).slice(0, 5));
     } catch (error) {
       console.error('Error fetching dashboard data:', error);
       setError(error instanceof Error ? error.message : 'Failed to load dashboard data');

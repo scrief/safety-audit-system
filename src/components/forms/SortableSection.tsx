@@ -5,7 +5,7 @@ import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { DndContext, useSensors, useSensor, PointerSensor, closestCenter } from '@dnd-kit/core';
 import { arrayMove, SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable';
-import { Section } from '@/types';
+import { Section, FieldType } from '@/lib/types';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { SortableField } from './SortableField';
@@ -17,8 +17,6 @@ interface SortableSectionProps {
 }
 
 export function SortableSection({ section, onUpdate, onDelete }: SortableSectionProps) {
-  console.log('SortableSection rendered with section:', section);
-  
   const {
     attributes,
     listeners,
@@ -38,27 +36,37 @@ export function SortableSection({ section, onUpdate, onDelete }: SortableSection
     transform: CSS.Transform.toString(transform),
     transition,
     opacity: isDragging ? 0.5 : 1,
-    position: 'relative',
+    position: 'relative' as const,
     zIndex: isDragging ? 999 : 'auto'
   };
 
   const handleAddField = () => {
-    console.log('Add Field clicked');
     const fieldNumber = section.fields.length + 1;
     const newField = {
       id: crypto.randomUUID(),
-      type: 'TEXT',
+      sectionId: section.id,
+      type: FieldType.TEXT,
       question: `Question ${fieldNumber}`,
       required: false,
-      aiEnabled: false,
-      options: [],
-      settings: {},
       order: section.fields.length,
-      scoring: {},
+      aiEnabled: false,
+      options: null,
+      settings: {
+        allowNotes: false,
+        allowPhotos: false,
+        photoRequired: false,
+        notesRequired: false,
+        logic: [],
+      },
+      scoring: {
+        points: 0,
+        weight: 1,
+        scoringMethod: 'binary',
+      }
     };
-    console.log('New field:', newField);
+
     onUpdate(section.id, {
-      fields: [...section.fields, newField],
+      fields: [...section.fields, newField]
     });
   };
 
@@ -85,7 +93,6 @@ export function SortableSection({ section, onUpdate, onDelete }: SortableSection
       <Card className="mb-4 p-4">
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-2">
-            {/* Isolated drag handle */}
             <div
               {...attributes}
               {...listeners}
@@ -127,6 +134,29 @@ export function SortableSection({ section, onUpdate, onDelete }: SortableSection
             Delete Section
           </Button>
         </div>
+        
+        <input
+          type="text"
+          value={section.description || ''}
+          onChange={(e) => onUpdate(section.id, { description: e.target.value })}
+          className="w-full mb-4 text-sm text-gray-500 bg-transparent border-none focus:outline-none placeholder:pl-0"
+          placeholder="Enter section description (optional)"
+        />
+
+        <div className="mb-4">
+          <label className="block text-sm font-medium text-gray-700 mb-1">
+            Section Weight
+          </label>
+          <input
+            type="number"
+            min="0.1"
+            step="0.1"
+            value={section.weight || 1}
+            onChange={(e) => onUpdate(section.id, { weight: parseFloat(e.target.value) || 1 })}
+            className="w-32 p-1 border rounded"
+          />
+        </div>
+
         <DndContext
           sensors={useSensors(
             useSensor(PointerSensor, {
@@ -145,10 +175,11 @@ export function SortableSection({ section, onUpdate, onDelete }: SortableSection
               items={section.fields.map((f) => f.id)}
               strategy={verticalListSortingStrategy}
             >
-              {section.fields.map((field, index) => (
+              {section.fields.map((field) => (
                 <SortableField
                   key={field.id}
                   field={field}
+                  availableFields={section.fields}
                   onUpdate={(updates) =>
                     onUpdate(section.id, {
                       fields: section.fields.map((f) =>
@@ -172,7 +203,6 @@ export function SortableSection({ section, onUpdate, onDelete }: SortableSection
                 onClick={(e) => {
                   e.preventDefault();
                   e.stopPropagation();
-                  console.log('Add Field button clicked');
                   handleAddField();
                 }}
               >

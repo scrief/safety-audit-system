@@ -2,7 +2,6 @@ import { NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '../../../auth/[...nextauth]/route';
 import { prisma } from '@/lib/prisma';
-import { Template } from '@/types';
 
 export async function POST(
   request: Request,
@@ -59,50 +58,28 @@ export async function POST(
       );
     }
 
-    // 4. Get the payload from the request
-    let duplicateTemplate: Template;
-    try {
-      const payload = await request.json();
-      if (!payload || typeof payload !== 'object') {
-        throw new Error('Invalid template data received');
-      }
-      duplicateTemplate = payload;
-    } catch (error) {
-      return NextResponse.json(
-        { 
-          success: false, 
-          error: 'Invalid template data',
-          details: error instanceof Error ? error.message : 'Failed to parse template data'
-        },
-        { status: 400 }
-      );
-    }
-
-    // 5. Create duplicate template with all relations
+    // 4. Create the duplicate template
     const duplicateData = {
-      id: duplicateTemplate.id,
-      name: duplicateTemplate.name,
-      description: duplicateTemplate.description || '',
+      name: `${sourceTemplate.name} (Copy)`,
+      description: sourceTemplate.description || '',
       disclaimer: sourceTemplate.disclaimer || '',
       userId: user.id,
       sections: {
-        create: duplicateTemplate.sections.map(section => ({
-          id: section.id,
+        create: sourceTemplate.sections.map(section => ({
           title: section.title,
           description: section.description || '',
           order: section.order,
           weight: section.weight || 1,
           fields: {
             create: section.fields.map(field => ({
-              id: field.id,
               question: field.question,
               type: field.type,
               required: field.required,
               order: field.order,
-              options: field.options || null,
-              settings: field.settings || null,
+              options: field.options,
+              settings: field.settings,
               aiEnabled: field.aiEnabled || false,
-              scoring: field.scoring || null,
+              scoring: field.scoring,
             })),
           },
         })),

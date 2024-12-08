@@ -1,21 +1,41 @@
 import { useState, useCallback } from 'react';
-import { Field } from '@/types';
-import { generateSafetyRecommendation } from '@/lib/openai';
+import { Field } from '@/types/fields';
 
 export function useAIRecommendations() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const getRecommendation = useCallback(async (
-    value: string,
-    field: Field
+    observation: string,
+    field: Field,
+    industryContext?: string
   ): Promise<string> => {
     setIsLoading(true);
     setError(null);
 
     try {
-      const recommendation = await generateSafetyRecommendation(value, field);
-      return recommendation;
+      const response = await fetch('/api/ai/recommendations', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          observation,
+          industryContext,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to get AI recommendation');
+      }
+
+      const data = await response.json();
+      
+      if (data.error) {
+        throw new Error(data.error);
+      }
+
+      return data.recommendation;
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to get AI recommendation');
       return '';

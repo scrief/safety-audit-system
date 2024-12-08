@@ -7,10 +7,12 @@ export async function GET(request: Request) {
     // 1. Authentication
     const session = await auth(request);
     if (!session?.user?.email) {
-      return NextResponse.json(
-        { error: 'Authentication required' },
-        { status: 401 }
-      );
+      return NextResponse.json({ 
+        success: false,
+        error: 'Authentication required' 
+      }, { 
+        status: 401 
+      });
     }
 
     // 2. Get user
@@ -19,10 +21,12 @@ export async function GET(request: Request) {
     });
 
     if (!user) {
-      return NextResponse.json(
-        { error: 'User not found' },
-        { status: 404 }
-      );
+      return NextResponse.json({ 
+        success: false,
+        error: 'User not found' 
+      }, { 
+        status: 404 
+      });
     }
 
     // 3. Get clients
@@ -34,6 +38,7 @@ export async function GET(request: Request) {
 
     // 4. Return formatted response
     return NextResponse.json({ 
+      success: true,
       data: clients.map(client => ({
         id: client.id,
         name: client.name,
@@ -42,13 +47,14 @@ export async function GET(request: Request) {
         locations: client.locations,
         riskLevel: client.riskLevel,
         logo: client.logo,
-        contacts: client.contacts // This is already a JSON field in your schema
+        contacts: client.contacts
       }))
     });
 
   } catch (error) {
     console.error('Error fetching clients:', error);
     return NextResponse.json({ 
+      success: false,
       error: 'Failed to fetch clients',
       details: process.env.NODE_ENV === 'development' ? error instanceof Error ? error.message : String(error) : undefined
     }, { 

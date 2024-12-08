@@ -17,7 +17,12 @@ export interface Field {
   required: boolean;
   order: number;
   options?: any | null; // Json in Prisma
-  settings?: any | null; // Json in Prisma
+  settings?: {
+    allowPhotos?: boolean;
+    allowNotes?: boolean;
+    maxPhotos?: number;
+    notesLabel?: string;
+  } | null;
   aiEnabled: boolean;
   scoring?: any | null; // Json in Prisma
   createdAt?: Date;

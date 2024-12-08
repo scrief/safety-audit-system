@@ -9,6 +9,8 @@ import { Card } from '@/components/ui/card';
 import { SortableSection } from './SortableSection';
 import { AddSectionDialog } from './AddSectionDialog';
 import { useNavigationManager } from '@/hooks/useNavigationManager';
+import { toast } from '@/components/ui/use-toast';
+import { AlertCircle } from 'lucide-react';
 
 interface FormBuilderProps {
   template: Template;
@@ -17,7 +19,7 @@ interface FormBuilderProps {
 }
 
 export function FormBuilder({ template: initialTemplate, onSave, onCancel }: FormBuilderProps) {
-  const { setUnsavedChanges, navigate } = useNavigationManager();
+  const { setUnsavedChanges } = useNavigationManager();
   const [sections, setSections] = useState<Section[]>(initialTemplate?.sections || []);
   const [isAddingSections, setIsAddingSections] = useState(false);
   const [templateName, setTemplateName] = useState(initialTemplate?.name || '');
@@ -29,8 +31,6 @@ export function FormBuilder({ template: initialTemplate, onSave, onCancel }: For
     useSensor(PointerSensor, {
       activationConstraint: {
         distance: 3,
-        tolerance: 5,
-        delay: 50,
       },
     }),
     useSensor(KeyboardSensor, {
@@ -69,27 +69,25 @@ export function FormBuilder({ template: initialTemplate, onSave, onCancel }: For
 
     setSections((prev) => [...prev, newSection]);
     setIsAddingSections(false);
+    setUnsavedChanges(true);
   };
 
   const handleUpdateSection = (sectionId: string, updates: Partial<Section>) => {
-    console.log('Updating section:', { sectionId, updates });
     setSections((prev) => {
       const newSections = prev.map((section) => {
         if (section.id === sectionId) {
-          const updatedSection = {
+          return {
             ...section,
             ...updates,
             fields: updates.fields || section.fields,
             weight: updates.weight || section.weight || 1,
           };
-          console.log('Updated section:', updatedSection);
-          return updatedSection;
         }
         return section;
       });
-      console.log('Updated sections:', newSections);
       return newSections;
     });
+    setUnsavedChanges(true);
   };
 
   const handleDeleteSection = (sectionId: string) => {
@@ -97,113 +95,161 @@ export function FormBuilder({ template: initialTemplate, onSave, onCancel }: For
       prev.filter((section) => section.id !== sectionId)
         .map((section, index) => ({ ...section, order: index }))
     );
+    setUnsavedChanges(true);
   };
 
   const validateTemplate = (): string | null => {
-    // Validate template name and description
-    if (!templateName.trim()) {
-      return 'Template name is required';
-    }
-    if (!templateDescription.trim()) {
-      return 'Template description is required';
-    }
-
-    // Validate sections
-    if (sections.length === 0) {
-      return 'Template must have at least one section';
-    }
-
-    // Validate each section and its fields
-    for (let i = 0; i < sections.length; i++) {
-      const section = sections[i];
-      
-      if (!section.title.trim()) {
-        return `Section ${i + 1} must have a title`;
+    try {
+      // Validate template name and description
+      if (!templateName.trim()) {
+        return 'Template name is required';
+      }
+      if (!templateDescription.trim()) {
+        return 'Template description is required';
       }
 
-      if (section.fields.length === 0) {
-        return `Section "${section.title}" must have at least one field`;
+      // Validate sections
+      if (sections.length === 0) {
+        return 'Template must have at least one section';
       }
 
-      for (let j = 0; j < section.fields.length; j++) {
-        const field = section.fields[j];
+      // Validate each section and its fields
+      for (let i = 0; i < sections.length; i++) {
+        const section = sections[i];
         
-        if (!field.question.trim()) {
-          return `Field ${j + 1} in section "${section.title}" must have a question`;
+        if (!section.title?.trim()) {
+          return `Section ${i + 1} must have a title`;
         }
 
-        if (!field.type) {
-          return `Field "${field.question}" in section "${section.title}" must have a type`;
+        if (section.fields.length === 0) {
+          return `Section "${section.title}" must have at least one field`;
+        }
+
+        for (let j = 0; j < section.fields.length; j++) {
+          const field = section.fields[j];
+          
+          if (!field.question?.trim()) {
+            return `Field ${j + 1} in section "${section.title}" must have a question`;
+          }
+
+          if (!field.type) {
+            return `Field "${field.question}" in section "${section.title}" must have a type`;
+          }
         }
       }
-    }
 
-    return null;
+      return null;
+    } catch (error) {
+      console.error('Validation error:', error);
+      return 'An error occurred during validation';
+    }
   };
 
   const handleSave = async () => {
     try {
+      console.log('[FormBuilder] Starting save process...');
       setError(null);
       setIsSaving(true);
 
-      // Validate the template
+      // Validate the template first
+      console.log('[FormBuilder] Validating template...');
       const validationError = validateTemplate();
       if (validationError) {
-        setError(validationError);
-        return;
+        throw new Error(validationError);
       }
 
+      // Create the updated template
+      console.log('[FormBuilder] Creating updated template...');
       const updatedTemplate: Template = {
-        ...initialTemplate,
+        id: initialTemplate?.id || crypto.randomUUID(),
         name: templateName.trim(),
         description: templateDescription.trim(),
-        sections: sections.map((section, index) => ({
-          ...section,
+        createdAt: initialTemplate?.createdAt || new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        sections: sections.map((section) => ({
+          id: section.id,
           title: section.title.trim(),
-          order: index,
+          description: section.description?.trim() || '',
+          order: section.order,
           weight: section.weight || 1,
-          fields: section.fields.map((field, fieldIndex) => ({
-            ...field,
-            question: field.question.trim(),
-            order: fieldIndex,
+          fields: section.fields.map((field) => ({
+            id: field.id,
             type: field.type,
+            question: field.question.trim(),
+            description: field.description?.trim() || '',
             required: Boolean(field.required),
             aiEnabled: Boolean(field.aiEnabled),
-            options: field.options || [],
-            settings: field.settings || {},
+            order: field.order,
+            options: field.type === FieldType.MULTIPLE_CHOICE && Array.isArray(field.options)
+              ? field.options.map(opt => ({
+                  id: opt.id,
+                  text: opt.text.trim(),
+                  value: opt.value,
+                  isCorrect: Boolean(opt.isCorrect)
+                }))
+              : {},
+            settings: {
+              allowPhotos: Boolean(field.settings?.allowPhotos),
+              allowNotes: Boolean(field.settings?.allowNotes),
+              maxPhotos: field.settings?.maxPhotos || 5,
+              notesLabel: field.settings?.notesLabel || 'Additional Notes',
+              slider: field.settings?.slider || { min: 0, max: 100, step: 1 }
+            },
             scoring: field.scoring || {},
           })),
         })),
       };
 
+      // Log the template data for debugging
+      console.log('[FormBuilder] Template to save:', JSON.stringify(updatedTemplate, null, 2));
+
+      // Call the save function
+      console.log('[FormBuilder] Calling onSave function...');
       await onSave(updatedTemplate);
+      
+      // Success notification
+      console.log('[FormBuilder] Save successful');
+      toast({
+        title: "Success",
+        description: "Template saved successfully",
+      });
+
       setUnsavedChanges(false);
-      navigate('/forms', true);
     } catch (error) {
-      console.error('Error saving template:', error);
-      setError(error instanceof Error ? error.message : 'An error occurred while saving');
+      console.error('[FormBuilder] Error saving template:', error);
+      const errorMessage = error instanceof Error ? error.message : 'An unexpected error occurred';
+      setError(errorMessage);
+      toast({
+        title: "Error",
+        description: errorMessage,
+        variant: "destructive",
+      });
+      throw error;
     } finally {
       setIsSaving(false);
     }
   };
 
-  const handleCancel = async () => {
-    await navigate('/forms');
+  const handleCancel = () => {
+    if (!hasUnsavedChanges || window.confirm('Are you sure you want to discard your changes?')) {
+      setUnsavedChanges(false);
+      onCancel();
+    }
   };
 
-  useEffect(() => {
-    const hasChanges = sections.some((section, index) => {
-      const initialSection = initialTemplate.sections?.[index];
-      return (
-        section.title !== initialSection?.title ||
-        section.description !== initialSection?.description ||
-        section.weight !== initialSection?.weight ||
-        JSON.stringify(section.fields) !== JSON.stringify(initialSection?.fields)
-      );
-    }) || templateName !== initialTemplate.name || templateDescription !== initialTemplate.description;
+  const hasUnsavedChanges = sections.some((section, index) => {
+    const initialSection = initialTemplate.sections?.[index];
+    return (
+      section.title !== initialSection?.title ||
+      section.description !== initialSection?.description ||
+      section.weight !== initialSection?.weight ||
+      JSON.stringify(section.fields) !== JSON.stringify(initialSection?.fields)
+    );
+  }) || templateName !== initialTemplate.name || templateDescription !== initialTemplate.description;
 
-    setUnsavedChanges(hasChanges);
-  }, [sections, templateName, templateDescription, initialTemplate, setUnsavedChanges]);
+  useEffect(() => {
+    setUnsavedChanges(hasUnsavedChanges);
+  }, [sections, templateName, templateDescription, initialTemplate, setUnsavedChanges, hasUnsavedChanges]);
 
   return (
     <div className="container mx-auto px-4 py-8">
@@ -229,8 +275,9 @@ export function FormBuilder({ template: initialTemplate, onSave, onCancel }: For
       </div>
       
       {error && (
-        <div className="mb-4 p-4 bg-red-50 border border-red-200 text-red-700 rounded-md">
-          {error}
+        <div className="mb-4 p-4 bg-red-50 border border-red-200 text-red-700 rounded-md flex items-center gap-2">
+          <AlertCircle className="h-5 w-5" />
+          <span>{error}</span>
         </div>
       )}
 

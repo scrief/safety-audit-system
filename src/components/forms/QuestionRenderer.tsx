@@ -5,8 +5,14 @@ import { Field, FieldType } from '@/types/fields';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Textarea } from '@/components/ui/textarea';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Checkbox } from '@/components/ui/checkbox';
+import { useAIRecommendations } from '@/hooks/useAIRecommendations';
 import { ImageUpload } from './ImageUpload';
-import { Camera, FileText } from 'lucide-react';
+import { AlertCircle, Calendar, Camera, Check, FileText, Info, Wand } from 'lucide-react';
+import { Slider } from '@/components/ui/slider';
+import { cn } from '@/lib/utils';
 
 interface QuestionRendererProps {
   field: Field;
@@ -18,120 +24,318 @@ interface QuestionRendererProps {
 export function QuestionRenderer({ field, value, onChange, disabled = false }: QuestionRendererProps) {
   const [showNotes, setShowNotes] = useState(false);
   const [showPhotos, setShowPhotos] = useState(false);
+  const [isEditing, setIsEditing] = useState(false);
+  const { getRecommendation, isLoading, error } = useAIRecommendations();
+  const [editableRecommendation, setEditableRecommendation] = useState(value?.aiRecommendation || '');
 
   const handleValueChange = (newValue: any) => {
     onChange({
       ...value,
-      answer: newValue
+      fieldId: field.id,
+      value: newValue
     });
   };
 
   const handleNotesChange = (notes: string) => {
     onChange({
       ...value,
+      fieldId: field.id,
       notes
     });
   };
 
-  const handlePhotoChange = (photos: string[]) => {
+  const handlePhotosChange = (photos: string[]) => {
     onChange({
       ...value,
+      fieldId: field.id,
       photos
     });
   };
 
-  const shouldShowQuestion = () => {
-    if (!field.settings?.logic) return true;
-    return true;
+  const handleGetRecommendation = async () => {
+    if (!value?.value) return;
+
+    try {
+      const recommendation = await getRecommendation(value.value, field);
+      setEditableRecommendation(recommendation);
+      onChange({
+        ...value,
+        fieldId: field.id,
+        aiRecommendation: recommendation
+      });
+    } catch (err) {
+      console.error('Error getting AI recommendation:', err);
+    }
   };
 
-  if (!shouldShowQuestion()) return null;
+  const handleSaveEdit = () => {
+    onChange({
+      ...value,
+      fieldId: field.id,
+      aiRecommendation: editableRecommendation
+    });
+    setIsEditing(false);
+  };
+
+  const renderField = () => {
+    switch (field.type) {
+      case FieldType.TEXT:
+        return (
+          <Textarea
+            value={value?.value || ''}
+            onChange={(e) => handleValueChange(e.target.value)}
+            disabled={disabled}
+            placeholder="Enter your answer"
+            className="w-full"
+          />
+        );
+
+      case FieldType.NUMBER:
+        return (
+          <Input
+            type="number"
+            value={value?.value || ''}
+            onChange={(e) => handleValueChange(e.target.value)}
+            disabled={disabled}
+            placeholder="Enter a number"
+            min={field.settings?.min}
+            max={field.settings?.max}
+            step={field.settings?.step || 1}
+            className="w-full"
+          />
+        );
+
+      case FieldType.YES_NO:
+        return (
+          <div className="flex gap-4">
+            <Button
+              type="button"
+              variant={value?.value === 'yes' ? 'default' : 'outline'}
+              onClick={() => handleValueChange('yes')}
+              disabled={disabled}
+              className="flex-1 sm:flex-none"
+            >
+              {value?.value === 'yes' && (
+                <Check className="mr-2 h-4 w-4" />
+              )}
+              Yes
+            </Button>
+            <Button
+              type="button"
+              variant={value?.value === 'no' ? 'default' : 'outline'}
+              onClick={() => handleValueChange('no')}
+              disabled={disabled}
+              className="flex-1 sm:flex-none"
+            >
+              {value?.value === 'no' && (
+                <Check className="mr-2 h-4 w-4" />
+              )}
+              No
+            </Button>
+          </div>
+        );
+
+      case FieldType.MULTIPLE_CHOICE:
+        return (
+          <div className="space-y-2">
+            {field.options?.map((option, index) => {
+              const isSelected = value?.value === option.value;
+              return (
+                <Button
+                  key={`${field.id}-${option.value || index}`}
+                  type="button"
+                  variant={isSelected ? 'default' : 'outline'}
+                  onClick={() => handleValueChange(option.value)}
+                  disabled={disabled}
+                  className="w-full justify-start"
+                >
+                  {isSelected && (
+                    <Check className="mr-2 h-4 w-4" />
+                  )}
+                  {option.label || option.value}
+                </Button>
+              );
+            })}
+          </div>
+        );
+
+      case FieldType.CHECKLIST:
+        return (
+          <div className="space-y-2">
+            {field.options?.map((option, index) => {
+              const currentValues = Array.isArray(value?.value) ? value.value : [];
+              const isChecked = currentValues.includes(option.value);
+              return (
+                <Button
+                  key={`${field.id}-${option.value || index}`}
+                  type="button"
+                  onClick={() => {
+                    const newValues = isChecked
+                      ? currentValues.filter((v: string) => v !== option.value)
+                      : [...currentValues, option.value];
+                    handleValueChange(newValues);
+                  }}
+                  disabled={disabled}
+                  variant={isChecked ? 'default' : 'outline'}
+                  className="w-full justify-start"
+                >
+                  {isChecked && (
+                    <Check className="mr-2 h-4 w-4 flex-shrink-0" />
+                  )}
+                  <span className="truncate">{option.label || option.value}</span>
+                </Button>
+              );
+            })}
+          </div>
+        );
+
+      case FieldType.CHECKBOX:
+        return (
+          <div className="flex items-center gap-2">
+            <Checkbox
+              checked={value?.value || false}
+              onCheckedChange={(checked) => handleValueChange(checked)}
+              disabled={disabled}
+            />
+            <Label className="text-sm font-medium">
+              {field.question}
+            </Label>
+          </div>
+        );
+
+      case FieldType.DATE:
+        return (
+          <div className="relative">
+            <Input
+              type="date"
+              value={value?.value || ''}
+              onChange={(e) => handleValueChange(e.target.value)}
+              disabled={disabled}
+              className="w-full"
+              min={field.settings?.minDate}
+              max={field.settings?.maxDate}
+            />
+            <Calendar className="absolute right-2 top-2.5 h-4 w-4 text-gray-400 pointer-events-none" />
+          </div>
+        );
+
+      case FieldType.SLIDER:
+        const sliderSettings = field.settings?.slider || { min: 0, max: 100, step: 1 };
+        return (
+          <div className="space-y-4">
+            <div>
+              <Slider
+                value={[value?.value ?? sliderSettings.min]}
+                min={sliderSettings.min}
+                max={sliderSettings.max}
+                step={sliderSettings.step}
+                onValueChange={([val]) => handleValueChange(val)}
+                disabled={disabled}
+              />
+            </div>
+            <div className="flex justify-between text-sm text-gray-500">
+              <span>{sliderSettings.minLabel || sliderSettings.min}</span>
+              <span>{sliderSettings.maxLabel || sliderSettings.max}</span>
+            </div>
+          </div>
+        );
+
+      case FieldType.INSTRUCTION:
+        return (
+          <div className="bg-blue-50 border border-blue-200 rounded-md p-4 flex items-start space-x-3">
+            <Info className="h-5 w-5 text-blue-500 mt-0.5 flex-shrink-0" />
+            <div className="text-sm text-blue-700">
+              {field.question}
+            </div>
+          </div>
+        );
+
+      default:
+        return <div>Unsupported field type: {field.type}</div>;
+    }
+  };
+
+  if (!field) return null;
 
   return (
     <Card className="p-4 space-y-4">
       <div className="space-y-2">
-        <h3 className="font-medium">
-          {field.question}
-          {field.required && <span className="text-red-500 ml-1">*</span>}
-        </h3>
+        {field.type !== FieldType.INSTRUCTION && (
+          <h3 className="font-medium">
+            {field.question}
+            {field.required && <span className="text-red-500 ml-1">*</span>}
+          </h3>
+        )}
 
-        {field.type === FieldType.TEXT && (
+        {renderField()}
+
+        {field.type !== FieldType.INSTRUCTION && field.aiEnabled && (
           <div className="space-y-4">
-            <Textarea
-              value={value?.answer || ''}
-              onChange={(e) => handleValueChange(e.target.value)}
-              disabled={disabled}
-              placeholder="Enter your answer"
-              className="w-full"
-            />
-          </div>
-        )}
-
-        {field.type === FieldType.MULTIPLE_CHOICE && (
-          <div className="space-y-2">
-            {field.options?.map((option) => (
-              <div key={option.id} className="flex items-center gap-2">
-                <input
-                  type="radio"
-                  id={`${field.id}-${option.id}`}
-                  name={field.id}
-                  value={option.value}
-                  checked={value?.answer === option.value}
-                  onChange={(e) => handleValueChange(e.target.value)}
-                  disabled={disabled}
-                  className="h-4 w-4"
-                />
-                <label htmlFor={`${field.id}-${option.id}`}>
-                  {option.text}
-                </label>
-              </div>
-            ))}
-          </div>
-        )}
-
-        {field.type === FieldType.CHECKBOX && (
-          <div className="space-y-2">
-            {field.options?.map((option) => (
-              <div key={option.id} className="flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  id={`${field.id}-${option.id}`}
-                  value={option.value}
-                  checked={value?.answer?.includes(option.value)}
-                  onChange={(e) => {
-                    const currentValues = value?.answer || [];
-                    const newValues = e.target.checked
-                      ? [...currentValues, option.value]
-                      : currentValues.filter((v: string) => v !== option.value);
-                    handleValueChange(newValues);
-                  }}
-                  disabled={disabled}
-                  className="h-4 w-4"
-                />
-                <label htmlFor={`${field.id}-${option.id}`}>
-                  {option.text}
-                </label>
-              </div>
-            ))}
-          </div>
-        )}
-
-        {field.type === FieldType.AI_RECOMMENDATION && (
-          <div className="space-y-2">
-            <div className="bg-gray-50 p-4 rounded-md">
-              <p className="text-sm text-gray-600">
-                AI recommendation will be generated based on your answers to the linked questions.
-              </p>
+            <div className="flex justify-end">
+              <Button
+                type="button"
+                onClick={handleGetRecommendation}
+                disabled={disabled || isLoading || !value?.value}
+                className="flex items-center gap-2"
+              >
+                <Wand className="h-4 w-4" />
+                {isLoading ? 'Generating...' : 'Get AI Recommendation'}
+              </Button>
             </div>
-            {value?.answer && (
+
+            {error && (
+              <div className="text-red-600 text-sm">
+                {error}
+              </div>
+            )}
+
+            {value?.aiRecommendation && (
               <div className="bg-blue-50 p-4 rounded-md">
-                <p>{value.answer}</p>
+                {isEditing ? (
+                  <div className="space-y-2">
+                    <Textarea
+                      value={editableRecommendation}
+                      onChange={(e) => setEditableRecommendation(e.target.value)}
+                      className="w-full"
+                    />
+                    <div className="flex justify-end gap-2">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={() => {
+                          setIsEditing(false);
+                          setEditableRecommendation(value.aiRecommendation);
+                        }}
+                      >
+                        Cancel
+                      </Button>
+                      <Button
+                        type="button"
+                        onClick={handleSaveEdit}
+                      >
+                        Save Changes
+                      </Button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    <p>{value.aiRecommendation}</p>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => setIsEditing(true)}
+                      className="mt-2"
+                    >
+                      Edit Recommendation
+                    </Button>
+                  </div>
+                )}
               </div>
             )}
           </div>
         )}
 
-        {(field.settings?.allowNotes || field.settings?.allowPhotos) && (
+        {field.type !== FieldType.INSTRUCTION && (field.settings?.allowNotes || field.settings?.allowPhotos) && (
           <div className="flex gap-2 mt-4">
             {field.settings?.allowNotes && (
               <Button
@@ -173,7 +377,7 @@ export function QuestionRenderer({ field, value, onChange, disabled = false }: Q
           <div className="mt-4">
             <ImageUpload
               value={value?.photos || []}
-              onChange={handlePhotoChange}
+              onChange={(photos) => handlePhotosChange(photos)}
               maxFiles={5}
             />
           </div>

@@ -1,7 +1,9 @@
+'use client';
+
 import React from 'react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { TrashIcon, PencilSquareIcon } from '@heroicons/react/24/outline';
+import { Spinner } from '@/components/ui/spinner';
 
 interface Client {
   id: string;
@@ -22,11 +24,9 @@ interface Client {
 interface ClientListProps {
   clients: Client[];
   onSelect: (client: Client) => void;
-  onEdit: (client: Client) => void;
-  onDelete: (clientId: string) => Promise<void>;
 }
 
-export function ClientList({ clients, onSelect, onEdit, onDelete }: ClientListProps) {
+export function ClientList({ clients, onSelect }: ClientListProps) {
   const getRiskLevelColor = (level: string) => {
     switch (level) {
       case 'LOW': return 'bg-green-100 text-green-800';
@@ -36,10 +36,18 @@ export function ClientList({ clients, onSelect, onEdit, onDelete }: ClientListPr
     }
   };
 
+  if (!Array.isArray(clients)) {
+    return (
+      <Card className="p-6">
+        <p className="text-gray-500 text-center">Error loading clients.</p>
+      </Card>
+    );
+  }
+
   if (clients.length === 0) {
     return (
       <Card className="p-6">
-        <p className="text-gray-500 text-center">No clients found.</p>
+        <p className="text-gray-500 text-center">No clients found. Please add some clients first.</p>
       </Card>
     );
   }
@@ -47,7 +55,11 @@ export function ClientList({ clients, onSelect, onEdit, onDelete }: ClientListPr
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
       {clients.map((client) => (
-        <Card key={client.id} className="hover:shadow-lg transition-shadow">
+        <Card 
+          key={client.id} 
+          className="hover:shadow-lg transition-shadow cursor-pointer"
+          onClick={() => onSelect(client)}
+        >
           <div className="p-6">
             <div className="flex items-start justify-between">
               <div className="flex-1">
@@ -82,7 +94,7 @@ export function ClientList({ clients, onSelect, onEdit, onDelete }: ClientListPr
                   </div>
                 </div>
 
-                {client.contacts[0] && (
+                {client.contacts && client.contacts[0] && (
                   <div className="mt-4">
                     <h4 className="text-sm font-medium">Primary Contact:</h4>
                     <div className="text-sm text-gray-500">
@@ -94,36 +106,17 @@ export function ClientList({ clients, onSelect, onEdit, onDelete }: ClientListPr
               </div>
             </div>
           </div>
-
-          <div className="border-t px-6 py-4 bg-gray-50 flex justify-between items-center">
+          <div className="border-t px-6 py-4 bg-gray-50">
             <Button
-              variant="secondary"
-              onClick={() => onSelect(client)}
+              variant="default"
+              className="w-full"
+              onClick={(e) => {
+                e.stopPropagation();
+                onSelect(client);
+              }}
             >
-              Select
+              Select Client
             </Button>
-            <div className="flex items-center space-x-2">
-              <Button
-                variant="secondary"
-                size="iconSm"
-                onClick={() => onEdit(client)}
-                title="Edit Client"
-              >
-                <PencilSquareIcon className="h-4 w-4" />
-              </Button>
-              <Button
-                variant="destructive"
-                size="iconSm"
-                onClick={() => {
-                  if (window.confirm('Are you sure you want to delete this client?')) {
-                    onDelete(client.id);
-                  }
-                }}
-                title="Delete Client"
-              >
-                <TrashIcon className="h-4 w-4" />
-              </Button>
-            </div>
           </div>
         </Card>
       ))}

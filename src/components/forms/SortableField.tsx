@@ -2,17 +2,17 @@
 
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { Field } from '@/types/fields';
-import { FieldEditor } from './FieldEditor';
+import { Field } from '@/lib/types';
+import FieldEditor from './FieldEditor';
 
 interface SortableFieldProps {
   field: Field;
-  onUpdate: (field: Field) => void;
-  onDelete: (fieldId: string) => void;
   availableFields: Field[];
+  onUpdate: (updates: Partial<Field>) => void;
+  onDelete: (fieldId: string) => void;
 }
 
-export function SortableField({ field, onUpdate, onDelete, availableFields }: SortableFieldProps) {
+export function SortableField({ field, availableFields, onUpdate, onDelete }: SortableFieldProps) {
   const {
     attributes,
     listeners,
@@ -50,17 +50,15 @@ export function SortableField({ field, onUpdate, onDelete, availableFields }: So
             strokeLinecap="round"
             strokeLinejoin="round"
             strokeWidth={2}
-            d="M4 8h16M4 16h16"
+            d="M4 6h16M4 12h16m-7 6h7"
           />
         </svg>
       </div>
-
       <div className="pl-8">
         <FieldEditor
           field={field}
-          availableFields={availableFields}
-          onUpdate={onUpdate}
-          onDelete={onDelete}
+          onUpdate={(updatedField) => onUpdate(updatedField)}
+          onDelete={() => onDelete(field.id)}
         />
       </div>
     </div>

@@ -5,6 +5,7 @@ import { useSession } from 'next-auth/react';
 import { useRouter, useParams } from 'next/navigation';
 import { FormBuilder } from '@/components/forms/FormBuilder';
 import { Template } from '@/types';
+import { toast } from '@/components/ui/use-toast';
 
 export default function EditFormPage() {
   const params = useParams();
@@ -25,28 +26,39 @@ export default function EditFormPage() {
     async function fetchTemplate() {
       try {
         const response = await fetch(`/api/templates/${id}`);
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        
         const result = await response.json();
         
         if (result.success) {
           setTemplate(result.data);
         } else {
-          console.error('Failed to fetch template:', result.error);
-          router.push('/forms');
+          throw new Error(result.error || 'Failed to fetch template');
         }
       } catch (error) {
         console.error('Error fetching template:', error);
+        toast({
+          title: "Error",
+          description: error instanceof Error ? error.message : 'Failed to fetch template',
+          variant: "destructive",
+        });
         router.push('/forms');
       } finally {
         setIsLoading(false);
       }
     }
 
-    fetchTemplate();
+    if (id) {
+      fetchTemplate();
+    }
   }, [id, router]);
 
   const handleSave = async (updatedTemplate: Template) => {
     try {
-      console.log('Saving template:', updatedTemplate);
+      // Log the template being sent
+      console.log('Sending template data:', JSON.stringify(updatedTemplate, null, 2));
       
       const response = await fetch(`/api/templates/${id}`, {
         method: 'PUT',
@@ -56,41 +68,53 @@ export default function EditFormPage() {
         body: JSON.stringify(updatedTemplate),
       });
 
-      // Log the raw response for debugging
+      // Log response details for debugging
       console.log('Response status:', response.status);
       console.log('Response headers:', Object.fromEntries(response.headers.entries()));
-      
-      // Get the response text first
-      const responseText = await response.text();
-      console.log('Raw response text:', responseText);
 
-      // Try to parse the response as JSON
-      let result;
-      try {
-        result = responseText ? JSON.parse(responseText) : null;
-      } catch (parseError) {
-        console.error('Error parsing response:', parseError);
-        throw new Error('Invalid response from server');
+      if (!response.ok) {
+        // Try to get error details from response
+        const errorData = await response.json().catch(() => null);
+        throw new Error(
+          errorData?.error || `Server error: ${response.status} ${response.statusText}`
+        );
       }
+
+      const result = await response.json();
 
       if (!result) {
         throw new Error('Empty response from server');
       }
       
       if (result.success) {
+        toast({
+          title: "Success",
+          description: "Template saved successfully",
+        });
         router.push('/forms');
+        router.refresh();
       } else {
         throw new Error(result.error || 'Failed to save template');
       }
     } catch (error) {
       console.error('Error saving template:', error);
-      setError(error instanceof Error ? error.message : 'An error occurred while saving');
+      
+      toast({
+        title: "Error",
+        description: error instanceof Error ? error.message : 'Failed to save template',
+        variant: "destructive",
+      });
+      
       throw error;
     }
   };
 
   if (isLoading || !template) {
-    return <div>Loading...</div>;
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="animate-pulse text-gray-500">Loading...</div>
+      </div>
+    );
   }
 
   return (

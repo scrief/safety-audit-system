@@ -1,4 +1,3 @@
-// src/app/api/templates/route.ts
 import { NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '../auth/[...nextauth]/route';
@@ -11,98 +10,57 @@ interface ValidationResult {
 }
 
 function isValidTemplateData(data: any): ValidationResult {
-  // Basic data validation
-  if (typeof data !== 'object' || data === null) {
-    return { isValid: false, error: 'Template data must be an object' };
-  }
-
-  // Name validation
-  if (typeof data.name !== 'string' || data.name.trim().length === 0) {
-    return { isValid: false, error: 'Template name is required and must be a non-empty string' };
-  }
-
-  // Description validation
-  if (typeof data.description !== 'string') {
-    return { isValid: false, error: 'Template description must be a string' };
-  }
-
-  // Sections validation
-  if (!Array.isArray(data.sections)) {
-    return { isValid: false, error: 'Template sections must be an array' };
-  }
-
-  if (data.sections.length === 0) {
-    return { isValid: false, error: 'Template must have at least one section' };
-  }
-
-  // Validate each section
-  for (let i = 0; i < data.sections.length; i++) {
-    const section = data.sections[i];
-    
-    if (typeof section !== 'object' || section === null) {
-      return { isValid: false, error: `Section at index ${i} must be an object` };
+  try {
+    // Basic data validation
+    if (!data || typeof data !== 'object') {
+      return { isValid: false, error: 'Template data must be an object' };
     }
 
-    if (typeof section.title !== 'string' || section.title.trim().length === 0) {
-      return { isValid: false, error: `Section at index ${i} must have a non-empty title` };
+    // Required fields validation
+    if (!data.name?.trim()) {
+      return { isValid: false, error: 'Template name is required' };
     }
 
-    if (typeof section.order !== 'number') {
-      return { isValid: false, error: `Section at index ${i} must have a numeric order` };
+    if (!data.description?.trim()) {
+      return { isValid: false, error: 'Template description is required' };
     }
 
-    if (!Array.isArray(section.fields)) {
-      return { isValid: false, error: `Section at index ${i} must have a fields array` };
+    // Sections validation
+    if (!Array.isArray(data.sections)) {
+      return { isValid: false, error: 'Template sections must be an array' };
     }
 
-    // Validate each field in the section
-    for (let j = 0; j < section.fields.length; j++) {
-      const field = section.fields[j];
+    if (data.sections.length === 0) {
+      return { isValid: false, error: 'Template must have at least one section' };
+    }
 
-      if (typeof field !== 'object' || field === null) {
-        return { isValid: false, error: `Field at index ${j} in section ${i} must be an object` };
+    // Validate each section
+    for (const section of data.sections) {
+      if (!section.title?.trim()) {
+        return { isValid: false, error: 'Each section must have a title' };
       }
 
-      if (typeof field.question !== 'string' || field.question.trim().length === 0) {
-        return { isValid: false, error: `Field at index ${j} in section ${i} must have a non-empty question` };
+      if (!Array.isArray(section.fields)) {
+        return { isValid: false, error: 'Section fields must be an array' };
       }
 
-      // Enhanced field type validation
-      if (typeof field.type !== 'string') {
-        return { isValid: false, error: `Field at index ${j} in section ${i} must have a string type property` };
-      }
-      
-      const fieldType = field.type.toUpperCase() as FieldType;
-      if (!Object.values(FieldType).includes(fieldType)) {
-        return { 
-          isValid: false, 
-          error: `Field at index ${j} in section ${i} has invalid type "${field.type}". Valid types are: ${Object.values(FieldType).join(', ')}` 
-        };
-      }
+      // Validate each field
+      for (const field of section.fields) {
+        if (!field.question?.trim()) {
+          return { isValid: false, error: 'Each field must have a question' };
+        }
 
-      if (typeof field.required !== 'boolean') {
-        return { isValid: false, error: `Field at index ${j} in section ${i} must have a boolean required property` };
-      }
-
-      if (typeof field.order !== 'number') {
-        return { isValid: false, error: `Field at index ${j} in section ${i} must have a numeric order` };
-      }
-
-      if (field.options !== undefined && field.options !== null && typeof field.options !== 'object') {
-        return { isValid: false, error: `Field at index ${j} in section ${i} has invalid options format` };
-      }
-
-      if (field.settings !== undefined && field.settings !== null && typeof field.settings !== 'object') {
-        return { isValid: false, error: `Field at index ${j} in section ${i} has invalid settings format` };
-      }
-
-      if (typeof field.aiEnabled !== 'boolean') {
-        return { isValid: false, error: `Field at index ${j} in section ${i} must have a boolean aiEnabled property` };
+        if (!field.type) {
+          return { isValid: false, error: 'Each field must have a type' };
+        }
       }
     }
+
+    return { isValid: true };
+  } catch (error) {
+    console.error('Validation error:', error);
+    return { isValid: false, error: 'Invalid template structure' };
   }
-
-  return { isValid: true };
 }
 
 export async function POST(request: Request) {
@@ -111,32 +69,40 @@ export async function POST(request: Request) {
     const session = await getServerSession(authOptions);
     if (!session?.user?.email) {
       return NextResponse.json(
-        { success: false, error: 'You must be logged in to create templates' },
+        { success: false, error: 'Unauthorized' },
         { status: 401 }
       );
     }
 
-    // 2. Get or create user
-    const user = await prisma.user.upsert({
+    // 2. Parse request body
+    let data: any;
+    try {
+      data = await request.json();
+    } catch (error) {
+      console.error('Failed to parse request body:', error);
+      return NextResponse.json(
+        { success: false, error: 'Invalid request body' },
+        { status: 400 }
+      );
+    }
+
+    // 3. Get or create user
+    const user = await prisma.user.findUnique({
       where: { email: session.user.email },
-      update: {},
-      create: {
-        email: session.user.email,
-        name: session.user.name || session.user.email,
-        role: 'USER'
-      }
     });
 
-    // 3. Parse and validate incoming data
-    const data = await request.json();
-    console.log('Received template data:', JSON.stringify(data, null, 2));
+    if (!user) {
+      return NextResponse.json(
+        { success: false, error: 'User not found' },
+        { status: 404 }
+      );
+    }
 
-    // 4. Validate template structure
+    // 4. Validate template data
     const validationResult = isValidTemplateData(data);
     if (!validationResult.isValid) {
-      console.error('Template validation failed:', validationResult.error);
       return NextResponse.json(
-        { success: false, error: validationResult.error || 'Invalid template structure' },
+        { success: false, error: validationResult.error },
         { status: 400 }
       );
     }
@@ -152,19 +118,25 @@ export async function POST(request: Request) {
           disclaimer: data.disclaimer,
           sections: {
             create: data.sections.map((section: Section, sIndex: number) => ({
-              title: section.title,
+              title: section.title.trim(),
               order: section.order ?? sIndex,
               weight: section.weight ?? 1,
               fields: {
                 create: section.fields.map((field: Field, fIndex: number) => ({
-                  question: field.question,
-                  type: field.type.toUpperCase() as FieldType,
-                  required: field.required ?? false,
+                  question: field.question.trim(),
+                  type: field.type,
+                  required: Boolean(field.required),
                   order: field.order ?? fIndex,
-                  options: field.options ?? [],
-                  settings: field.settings ?? {},
-                  aiEnabled: field.aiEnabled ?? false,
-                  scoring: field.scoring ?? {},
+                  options: field.options ?? null,
+                  settings: {
+                    ...field.settings,
+                    allowPhotos: Boolean(field.settings?.allowPhotos),
+                    allowNotes: Boolean(field.settings?.allowNotes),
+                    maxPhotos: field.settings?.maxPhotos || 5,
+                    notesLabel: field.settings?.notesLabel || 'Additional Notes'
+                  },
+                  aiEnabled: Boolean(field.aiEnabled),
+                  scoring: field.scoring ?? null,
                 })),
               },
             })),
@@ -189,18 +161,62 @@ export async function POST(request: Request) {
     return NextResponse.json({
       success: true,
       data: template
+    }, { 
+      status: 201 // Created
     });
 
   } catch (error) {
-    console.error('Error creating template:', {
-      error,
-      message: error instanceof Error ? error.message : 'Unknown error',
-      stack: error instanceof Error ? error.stack : undefined
+    console.error('Error creating template:', error);
+    return NextResponse.json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Internal server error'
+    }, { 
+      status: 500 
+    });
+  }
+}
+
+export async function GET(request: Request) {
+  try {
+    const session = await getServerSession(authOptions);
+    if (!session?.user?.email) {
+      return NextResponse.json(
+        { success: false, error: 'Unauthorized' },
+        { status: 401 }
+      );
+    }
+
+    const templates = await prisma.template.findMany({
+      where: {
+        user: {
+          email: session.user.email
+        },
+        isArchived: false
+      },
+      include: {
+        sections: {
+          include: {
+            fields: true
+          },
+          orderBy: {
+            order: 'asc'
+          }
+        }
+      },
+      orderBy: {
+        updatedAt: 'desc'
+      }
     });
 
     return NextResponse.json({
+      success: true,
+      data: templates
+    });
+  } catch (error) {
+    console.error('Error fetching templates:', error);
+    return NextResponse.json({
       success: false,
-      error: error instanceof Error ? error.message : 'Failed to create template'
+      error: error instanceof Error ? error.message : 'Internal server error'
     }, { 
       status: 500 
     });

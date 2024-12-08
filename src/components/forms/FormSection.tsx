@@ -1,9 +1,9 @@
 // src/components/forms/FormSection.tsx
 'use client'
 
-import { Card } from '@/components/ui/Card'
-import { Button } from '@/components/ui/Button'
-import { Section, Field, FieldType } from '@/types'
+import { Card } from '@/components/ui/card'
+import { Button } from '@/components/ui/button'
+import { Section, Field, FieldType } from '@/lib/types'
 import { SortableField } from './SortableField'
 
 interface FormSectionProps {

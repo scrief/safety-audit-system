@@ -1,22 +1,12 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useSession } from 'next-auth/react';
-import { Card } from '@/components/ui/Card';
+import { Card } from '@/components/ui/card';
 import { ClientList } from '@/components/clients/ClientList';
-import { Button } from '@/components/ui/Button';
-
-interface Template {
-  id: string;
-  name: string;
-  description: string;
-  sections: {
-    id: string;
-    title: string;
-    fields: any[];
-  }[];
-}
+import { Button } from '@/components/ui/button';
+import { Spinner } from '@/components/ui/spinner';
 
 interface Client {
   id: string;
@@ -34,8 +24,21 @@ interface Client {
   }>;
 }
 
+interface Template {
+  id: string;
+  name: string;
+  description: string;
+  sections: {
+    id: string;
+    title: string;
+    fields: any[];
+  }[];
+}
+
 export default function NewAuditPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const templateId = searchParams.get('templateId');
   const { data: session } = useSession({
     required: true,
     onUnauthenticated() {
@@ -43,66 +46,58 @@ export default function NewAuditPage() {
     },
   });
 
-  const [templates, setTemplates] = useState<Template[]>([]);
   const [clients, setClients] = useState<Client[]>([]);
   const [selectedClient, setSelectedClient] = useState<Client | null>(null);
-  const [showTemplateSelector, setShowTemplateSelector] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isCreatingAudit, setIsCreatingAudit] = useState(false);
 
   useEffect(() => {
     if (session?.user) {
-      fetchData();
+      fetchClients();
     }
   }, [session]);
 
-  async function fetchData() {
+  const fetchClients = async () => {
     try {
       setIsLoading(true);
       setError(null);
 
-      const [templatesRes, clientsRes] = await Promise.all([
-        fetch('/api/templates/list'),
-        fetch('/api/clients/list')
-      ]);
-
-      if (!templatesRes.ok) {
-        throw new Error('Failed to fetch templates');
+      const response = await fetch('/api/clients');
+      const text = await response.text();
+      
+      let data;
+      try {
+        data = JSON.parse(text);
+      } catch (e) {
+        console.error('Failed to parse response:', text);
+        throw new Error('Invalid response from server');
       }
 
-      if (!clientsRes.ok) {
-        throw new Error('Failed to fetch clients');
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || 'Failed to fetch clients');
       }
 
-      const templatesData = await templatesRes.json();
-      const clientsData = await clientsRes.json();
-
-      setTemplates(templatesData.data || []);
-      setClients(clientsData.data || []);
+      setClients(data.data || []);
     } catch (error) {
-      console.error('Error fetching data:', error);
-      setError('Failed to load data. Please try again.');
+      console.error('Error fetching clients:', error);
+      setError(error instanceof Error ? error.message : 'Failed to load clients');
     } finally {
       setIsLoading(false);
     }
-  }
+  };
 
-  const startNewAudit = async (templateId: string) => {
+  const startNewAudit = async (client: Client) => {
+    if (!templateId) {
+      setError('No template selected');
+      return;
+    }
+
     try {
-      if (!selectedClient) {
-        setError('Please select a client first');
-        return;
-      }
-
       setIsCreatingAudit(true);
-      setShowTemplateSelector(false);
       setError(null);
 
-      console.log('Creating audit with:', {
-        templateId,
-        clientId: selectedClient.id
-      });
+      console.log('Starting new audit with:', { templateId, clientId: client.id });
 
       const response = await fetch('/api/audits', {
         method: 'POST',
@@ -111,48 +106,63 @@ export default function NewAuditPage() {
         },
         body: JSON.stringify({
           templateId,
-          clientId: selectedClient.id
+          clientId: client.id
         })
       });
 
-      const data = await response.json();
-      console.log('Audit creation response:', data);
+      console.log('Response status:', response.status);
+      console.log('Response headers:', Object.fromEntries(response.headers.entries()));
 
-      if (!response.ok) {
-        throw new Error(data.error || 'Failed to create audit');
+      // First get the response text
+      const responseText = await response.text();
+      console.log('Raw response text:', responseText);
+
+      // Try to parse it as JSON only if we have a response
+      if (!responseText) {
+        throw new Error('Empty response from server');
       }
 
-      // Navigate to the new audit
-      console.log('Redirecting to:', `/audits/${data.data.id}`);
+      let data;
+      try {
+        data = JSON.parse(responseText);
+      } catch (e) {
+        console.error('Failed to parse response:', responseText);
+        throw new Error(`Invalid JSON response from server: ${responseText}`);
+      }
+
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || `Server error: ${response.status}`);
+      }
+
+      if (!data.data?.id) {
+        throw new Error('No audit ID returned from server');
+      }
+
       router.push(`/audits/${data.data.id}`);
     } catch (error) {
       console.error('Error creating audit:', error);
       setError(error instanceof Error ? error.message : 'Failed to create audit');
-      setShowTemplateSelector(true);
     } finally {
       setIsCreatingAudit(false);
     }
   };
 
-  const handleClientSelect = (client: Client) => {
+  const handleClientSelect = async (client: Client) => {
     setSelectedClient(client);
-    setShowTemplateSelector(true);
-    setError(null);
+    await startNewAudit(client);
   };
 
   if (isLoading) {
     return (
-      <div className="container mx-auto px-4 py-8">
-        <div className="text-center">
-          <p className="text-gray-500">Loading...</p>
-        </div>
+      <div className="flex justify-center items-center min-h-[400px]">
+        <Spinner className="w-8 h-8" />
       </div>
     );
   }
 
   return (
-    <div className="container mx-auto px-4 py-8">
-      <div className="flex justify-between items-center mb-8">
+    <div className="container mx-auto px-4 py-8 space-y-6">
+      <div className="flex justify-between items-center">
         <h1 className="text-3xl font-bold">New Safety Audit</h1>
         <Button 
           onClick={() => router.push('/audits')}
@@ -164,70 +174,33 @@ export default function NewAuditPage() {
       </div>
 
       {error && (
-        <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-md text-red-600">
-          {error}
-          {error.includes('Failed to load data') && (
-            <Button 
-              onClick={fetchData}
-              variant="outline"
-              className="ml-4"
-            >
-              Retry
-            </Button>
-          )}
-        </div>
-      )}
-  
-      {!selectedClient && (
-        <div className="mb-8">
-          <h2 className="text-xl font-semibold mb-4">
-            Select a Client to Begin Audit
-          </h2>
-          <ClientList
-            clients={clients}
-            onSelect={handleClientSelect}
-          />
+        <div className="bg-red-50 border border-red-200 rounded-md p-4 text-red-600">
+          <p>{error}</p>
+          <Button 
+            onClick={fetchClients}
+            variant="outline"
+            size="sm"
+            className="mt-2"
+          >
+            Retry
+          </Button>
         </div>
       )}
 
-      {selectedClient && showTemplateSelector && (
-        <Card className="mb-8">
-          <div className="p-6">
-            <div className="flex justify-between items-center mb-4">
-              <h2 className="text-xl font-semibold">Select a Template for {selectedClient.name}</h2>
-              <Button
-                variant="outline"
-                onClick={() => setSelectedClient(null)}
-                disabled={isCreatingAudit}
-              >
-                Change Client
-              </Button>
-            </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {templates.map((template) => (
-                <button
-                  key={template.id}
-                  className="border rounded-lg p-4 text-left cursor-pointer hover:bg-gray-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                  onClick={() => !isCreatingAudit && startNewAudit(template.id)}
-                  disabled={isCreatingAudit}
-                >
-                  <h3 className="font-medium mb-2">{template.name}</h3>
-                  <p className="text-sm text-gray-600">{template.description}</p>
-                  <div className="mt-2 text-sm text-gray-500">
-                    {template.sections.length} sections
-                  </div>
-                </button>
-              ))}
-            </div>
-          </div>
-        </Card>
-      )}
+      <div className="space-y-4">
+        <h2 className="text-xl font-semibold">Select a Client</h2>
+        <ClientList
+          clients={clients}
+          onSelect={handleClientSelect}
+        />
+      </div>
 
       {isCreatingAudit && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center">
-          <div className="bg-white p-6 rounded-lg shadow-lg">
-            <p className="text-lg">Creating audit...</p>
-          </div>
+          <Card className="p-6 flex items-center space-x-4">
+            <Spinner className="w-6 h-6" />
+            <p>Creating audit...</p>
+          </Card>
         </div>
       )}
     </div>
